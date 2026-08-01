@@ -1,0 +1,262 @@
+{
+  "XAU": {
+    "name": "黄金",
+    "description": "黄金是传统避险和价值储藏资产；XAUUSDT 跟踪黄金美元价格，交易该永续合约不代表持有实物黄金。",
+    "url": "https://www.binance.com/en/academy/articles/how-to-trade-gold-and-silver-on-binance-futures"
+  },
+  "XAG": {
+    "name": "白银",
+    "description": "白银兼具贵金属和工业原料属性，需求涉及光伏、电子等行业；XAGUSDT 不代表实物白银所有权。",
+    "url": "https://www.binance.com/en/academy/articles/how-to-trade-gold-and-silver-on-binance-futures"
+  },
+  "XPT": {
+    "name": "铂金",
+    "description": "铂金是用于汽车催化转换器、燃料电池等领域的稀有金属；XPTUSDT 是 USDT 结算的价格跟踪合约。",
+    "url": "https://www.binance.com/en/academy/articles/how-to-trade-platinum-and-palladium-on-binance-futures"
+  },
+  "XPD": {
+    "name": "钯金",
+    "description": "钯金主要用于汽车催化转换器，价格对俄罗斯、南非等主要产地的供应变化较为敏感。",
+    "url": "https://www.binance.com/en/academy/articles/how-to-trade-platinum-and-palladium-on-binance-futures"
+  },
+  "CL": {
+    "name": "WTI 原油",
+    "description": "CLUSDT 跟踪 WTI 西得州中质原油的美元价格，一个价格单位对应一桶原油；它不代表实物原油所有权。",
+    "url": "https://www.binance.com/en/support/announcement/detail/e7a10ca855524655ab3dea73add40ef4"
+  },
+  "BZ": {
+    "name": "布伦特原油",
+    "description": "BZUSDT 跟踪布伦特原油的美元价格，一个价格单位对应一桶原油；它不代表实物原油所有权。",
+    "url": "https://www.binance.com/en/support/announcement/detail/e7a10ca855524655ab3dea73add40ef4"
+  },
+  "COPPER": {
+    "name": "铜",
+    "description": "铜广泛用于建筑、电子和制造业，其价格常被视为工业需求及全球经济活动的观察指标。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "QQQ": {
+    "name": "Invesco QQQ Trust",
+    "description": "QQQ 是跟踪纳斯达克上市的 100 家大型非金融公司的 ETF，科技板块权重较高；QQQUSDT 不等于持有 ETF 份额。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "SPY": {
+    "name": "SPDR S&P 500 ETF",
+    "description": "SPY 跟踪标普 500 指数，提供对美国大型上市公司的广泛敞口；SPYUSDT 不等于持有 ETF 份额。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "EWY": {
+    "name": "iShares MSCI South Korea ETF",
+    "description": "EWY 跟踪韩国大中型上市公司，覆盖半导体、汽车和消费电子等行业；EWYUSDT 不等于持有 ETF 份额。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "EWJ": {
+    "name": "iShares MSCI Japan ETF",
+    "description": "EWJ 跟踪日本大中型上市公司，为日本股票市场提供广泛敞口；EWJUSDT 不等于持有 ETF 份额。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "KORU": {
+    "name": "Direxion Daily MSCI South Korea Bull 3X Shares",
+    "description": "KORU 是韩国股票杠杆 ETF，以 MSCI Korea 25/50 指数为基准，目标是该指数单日收益的 3 倍；产品每日重置。",
+    "url": "https://www.direxion.com/product/daily-msci-south-korea-bull-3x-etf"
+  },
+  "SQQQ": {
+    "name": "ProShares UltraPro Short QQQ",
+    "description": "SQQQ 是纳斯达克 100 反向杠杆 ETF，目标是该指数单日收益的负 3 倍；产品每日重置。",
+    "url": "https://www.proshares.com/our-etfs/leveraged-and-inverse/sqqq"
+  },
+  "SOXS": {
+    "name": "Direxion Daily Semiconductor Bear 3X Shares",
+    "description": "SOXS 是半导体板块反向杠杆 ETF，目标是其基准指数单日收益的负 3 倍；产品每日重置。",
+    "url": "https://www.direxion.com/product/daily-semiconductor-bull-bear-3x-etfs"
+  },
+  "INTW": {
+    "name": "GraniteShares 2x Long INTC Daily ETF",
+    "description": "INTW 是 Intel 单股杠杆 ETF，目标是英特尔股票单日涨跌幅的 2 倍；产品每日重置。",
+    "url": "https://graniteshares.com/etfs/intw/"
+  },
+  "MUU": {
+    "name": "Direxion Daily MU Bull 2X Shares",
+    "description": "MUU 是 Micron Technology 单股杠杆 ETF，目标提供美光股票单日 2 倍做多敞口；产品每日重置。",
+    "url": "https://www.direxion.com/product/daily-mu-bull-and-bear-leveraged-single-stock-etfs"
+  },
+  "MVLL": {
+    "name": "GraniteShares 2x Long MRVL Daily ETF",
+    "description": "MVLL 是 Marvell Technology 单股杠杆 ETF，目标是 MRVL 股票单日收益的 2 倍；产品每日重置。",
+    "url": "https://graniteshares.com/etfs/mvll/"
+  },
+  "SNXX": {
+    "name": "Tradr 2X Long SNDK Daily ETF",
+    "description": "SNXX 是 SanDisk 单股杠杆 ETF，目标是 SNDK 股票单日收益的 2 倍；产品每日重置。",
+    "url": "https://www.tradretfs.com/snxx"
+  },
+  "MSTR": {
+    "name": "Strategy",
+    "description": "Strategy 是商业智能软件公司，并因在资产负债表持有大量比特币而被市场视为带有企业因素的间接 BTC 敞口。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "COIN": {
+    "name": "Coinbase",
+    "description": "Coinbase 是美国上市的加密资产交易平台，其经营表现与交易活跃度及加密市场周期密切相关。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "HOOD": {
+    "name": "Robinhood",
+    "description": "Robinhood 是提供股票、期权和加密资产交易服务的美国零售经纪平台，常被用于观察零售投资者活跃度。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "CRCL": {
+    "name": "Circle Internet Group",
+    "description": "Circle 是 USDC 稳定币的发行方，其业务与数字支付基础设施和稳定币应用增长密切相关。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "PAYP": {
+    "name": "PayPay",
+    "description": "PayPay 是日本移动支付平台，业务覆盖线下零售、餐饮和电子商务的二维码支付场景。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "TSLA": {
+    "name": "Tesla",
+    "description": "Tesla 生产电动车和储能产品，股价常受汽车交付、利润率、储能业务及公司治理事件驱动。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "AMZN": {
+    "name": "Amazon",
+    "description": "Amazon 经营全球电子商务平台和 AWS 云计算业务，业绩受消费支出、物流效率及企业云需求影响。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "META": {
+    "name": "Meta Platforms",
+    "description": "Meta 旗下包括 Facebook、Instagram 和 WhatsApp，收入主要来自数字广告，同时投资 AI 与 Reality Labs。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "GOOGL": {
+    "name": "Alphabet",
+    "description": "Alphabet 是 Google、YouTube 和 Google Cloud 的母公司，业务覆盖搜索广告、视频、云计算和人工智能。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "AAPL": {
+    "name": "Apple",
+    "description": "Apple 的主要产品包括 iPhone、Mac 和 iPad，并经营 App Store、订阅及其他服务业务。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "MSFT": {
+    "name": "Microsoft",
+    "description": "Microsoft 经营 Azure、Microsoft 365、LinkedIn 和 Xbox 等业务，是企业软件、云计算及 AI 基础设施的重要公司。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "NVDA": {
+    "name": "NVIDIA",
+    "description": "NVIDIA 设计 GPU、网络和计算平台，其数据中心产品广泛用于 AI 模型训练与推理。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "MU": {
+    "name": "Micron Technology",
+    "description": "Micron 是 DRAM 和 NAND 存储芯片制造商，产品用于数据中心、手机和个人电脑，高带宽存储器需求与 AI 服务器周期相关。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "SNDK": {
+    "name": "SanDisk",
+    "description": "SanDisk 提供 NAND 闪存和存储产品，应用于 SSD、存储卡、数据中心及消费电子设备。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "TSM": {
+    "name": "Taiwan Semiconductor Manufacturing Company",
+    "description": "TSMC 是全球主要晶圆代工厂，为众多芯片设计公司制造先进制程芯片，自身不以销售芯片设计为主。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "AVGO": {
+    "name": "Broadcom",
+    "description": "Broadcom 提供网络芯片、定制 AI 加速器和无线组件，并通过 VMware 经营基础设施软件业务。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "INTC": {
+    "name": "Intel",
+    "description": "Intel 设计和制造个人电脑及服务器处理器，并推进晶圆代工业务转型。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "PLTR": {
+    "name": "Palantir Technologies",
+    "description": "Palantir 提供面向政府和企业的数据整合、分析及人工智能软件平台。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "BABA": {
+    "name": "Alibaba",
+    "description": "Alibaba 经营电子商务、云计算和数字服务业务，其美国上市证券为 ADR。",
+    "url": "https://www.binance.com/en/academy/articles/tradfi-assets-you-can-trade-on-binance-futures"
+  },
+  "ANTHROPIC": {
+    "name": "Anthropic Pre-IPO",
+    "description": "ANTHROPICUSDT 是 Binance 的 Anthropic Pre-IPO 永续合约，参考假设的 IPO 每股价格和估算数量；它不是 Anthropic 股票，也不提供股东权利。",
+    "url": "https://www.binance.com/en/support/announcement/detail/2b9ff1e1acf8433793bc40c59a0cb852"
+  },
+  "BTC": {
+    "name": "Bitcoin",
+    "description": "Bitcoin 是采用工作量证明和固定发行规则的去中心化数字资产，BTC 用于价值转移、结算及价值储藏。",
+    "url": "https://bitcoin.org/en/"
+  },
+  "ETH": {
+    "name": "Ethereum",
+    "description": "Ethereum 是支持智能合约和去中心化应用的区块链网络，ETH 用于支付执行费用并参与权益证明。",
+    "url": "https://ethereum.org/en/what-is-ethereum/"
+  },
+  "BNB": {
+    "name": "BNB",
+    "description": "BNB 是 BNB Chain 生态的原生资产，用于支付链上手续费、参与应用及生态治理相关活动。",
+    "url": "https://www.bnbchain.org/en/bnb-chain"
+  },
+  "SOL": {
+    "name": "Solana",
+    "description": "Solana 是面向高吞吐应用的权益证明区块链，SOL 用于支付网络费用和参与验证者质押。",
+    "url": "https://solana.com/docs"
+  },
+  "EUL": {
+    "name": "Euler",
+    "description": "Euler 是以太坊上的模块化借贷协议，允许创建定制借贷金库；EUL 用于协议治理、费用拍卖和生态奖励。",
+    "url": "https://docs.euler.finance/EUL/overview/"
+  },
+  "DIA": {
+    "name": "DIA",
+    "description": "DIA 是面向 DeFi 的可验证预言机基础设施，为智能合约提供链上及现实世界数据；DIA 用于 Gas、预言机质押和治理。",
+    "url": "https://www.diadata.org/token/"
+  },
+  "BANK": {
+    "name": "Lorenzo Protocol",
+    "description": "BANK 对应 Lorenzo Protocol。该项目提供链上资产管理和收益型代币产品，包括 BTC 流动性质押相关资产。",
+    "url": "https://www.binance.com/en/support/announcement/detail/639d650204914c4f86c20e71c61228dd"
+  },
+  "ESP": {
+    "name": "Espresso",
+    "description": "Espresso 是面向 Rollup 的基础设施，目标是改善二层网络交易的安全性、速度和跨 Rollup 协作；ESP 是其项目代币。",
+    "url": "https://www.binance.com/en/support/announcement/detail/d60d3f7a16144a26ade3e9a84cd9156f"
+  },
+  "KAITO": {
+    "name": "Kaito",
+    "description": "Kaito 是 AI 驱动的加密信息与 InfoFi 平台，聚合信息并衡量社交注意力；KAITO 用于治理、质押和生态激励。",
+    "url": "https://www.binance.com/en/academy/articles/what-is-kaito"
+  },
+  "ESPORTS": {
+    "name": "Yooldo",
+    "description": "ESPORTS 对应 Yooldo，一个多链 Web3 游戏平台；该代币用于其游戏平台生态。",
+    "url": "https://www.binance.com/en/support/announcement/detail/9111be0e852d4d68addb987a260d5b8d"
+  },
+  "STAR": {
+    "name": "Starpower",
+    "description": "Starpower 是连接能源设备和虚拟电厂等应用的 Energy DePIN 协议，STAR 是其生态代币。",
+    "url": "https://www.binance.com/en/support/announcement/detail/12bcf9092e9c46358de3e49f8ef17f88"
+  },
+  "DEXE": {
+    "name": "DeXe",
+    "description": "DeXe 提供 DAO 创建、治理、委托和金库管理基础设施；DEXE 是协议治理代币。",
+    "url": "https://www.dexe.network/"
+  },
+  "ON": {
+    "name": "Orochi Network",
+    "description": "Orochi Network 利用密码学构建可验证数据基础设施，在不公开敏感信息的情况下验证数据完整性和计算结果。",
+    "url": "https://www.binance.com/en/support/announcement/detail/cb2091cbc3da4259972827293f8ed33d"
+  },
+  "SYN": {
+    "name": "Synapse",
+    "description": "Synapse 是跨链通信基础设施，提供跨链桥、消息传递和稳定币兑换；SYN 是协议的治理及功能型代币。",
+    "url": "https://www.binance.com/en/support/announcement/detail/891a788211d9432e9c85b9b87f35ebfa"
+  }
+}
