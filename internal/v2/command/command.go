@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"binance-monitor/internal/collector"
 	legacyconfig "binance-monitor/internal/config"
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/feature"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/marketdata"
 	"binance-monitor/internal/ratelimit"
@@ -21,6 +23,7 @@ import (
 	"binance-monitor/internal/universe"
 	"binance-monitor/internal/v2/api"
 	v2config "binance-monitor/internal/v2/config"
+	v2pipeline "binance-monitor/internal/v2/pipeline"
 	"binance-monitor/internal/v2/worker"
 
 	"github.com/spf13/cobra"
@@ -37,6 +40,7 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newDatabaseCommand("worker", "运行 V2 市场采集与后台任务", stdout, stderr, runWorker),
 		newDatabaseCommand("api", "运行 V2 只读 API 和健康接口", stdout, stderr, runAPI),
 		newDatabaseCommand("backfill", "回补 V2 历史行情数据", stdout, stderr, runBackfill),
+		newDatabaseCommand("features", "回补行情并计算 V2 多周期收益率", stdout, stderr, runFeatures),
 	}
 }
 
@@ -124,23 +128,11 @@ func runBackfill(
 	_ *slog.Logger,
 	stdout io.Writer,
 ) error {
-	httpClient, err := httpjson.NewWithProxy(settings.HTTPTimeout, settings.HTTPMaxRetries, settings.ProxyURL)
+	clients, err := newMarketClients(settings)
 	if err != nil {
 		return err
 	}
-	requestLimiter, err := ratelimit.NewWeightLimiter(settings.RequestWeightPerMinute, settings.RequestWeightBurst)
-	if err != nil {
-		return err
-	}
-	restClient, err := binance.NewWithWeightLimiter(settings.BinanceBaseURL, httpClient, requestLimiter)
-	if err != nil {
-		return err
-	}
-	archiveClient, err := binancevision.New(settings.ProxyURL)
-	if err != nil {
-		return err
-	}
-	service, err := backfill.NewService(postgres.NewKlineRepository(resources.Pool), archiveClient, restClient, backfill.SystemClock{})
+	service, err := newBackfillService(resources, clients)
 	if err != nil {
 		return err
 	}
@@ -182,6 +174,39 @@ func runBackfill(
 	return nil
 }
 
+func runFeatures(
+	ctx context.Context,
+	settings v2config.Settings,
+	resources *postgres.Resources,
+	logger *slog.Logger,
+	stdout io.Writer,
+) error {
+	clients, err := newMarketClients(settings)
+	if err != nil {
+		return err
+	}
+	pipeline, err := newReturnPipeline(settings, resources, clients)
+	if err != nil {
+		return err
+	}
+	asOf := time.Now().UTC().Truncate(market.SnapshotInterval)
+	result, err := pipeline.RunAt(ctx, asOf)
+	if err != nil {
+		return err
+	}
+	logger.Info("手动多周期收益率计算完成", "as_of", result.AsOf)
+	reasons, err := json.Marshal(result.InvalidReasons)
+	if err != nil {
+		return fmt.Errorf("编码 feature invalid reasons: %w", err)
+	}
+	_, err = fmt.Fprintf(stdout,
+		"features 完成：as_of=%s symbols=%d valid_metrics=%d invalid_metrics=%d written=%d reasons=%s\n",
+		result.AsOf.Format(time.RFC3339), result.Symbols, result.ValidMetrics,
+		result.InvalidMetrics, result.Written, reasons,
+	)
+	return err
+}
+
 func runWorker(
 	ctx context.Context,
 	settings v2config.Settings,
@@ -189,31 +214,12 @@ func runWorker(
 	logger *slog.Logger,
 	_ io.Writer,
 ) error {
-	httpClient, err := httpjson.NewWithProxy(
-		settings.HTTPTimeout,
-		settings.HTTPMaxRetries,
-		settings.ProxyURL,
-	)
-	if err != nil {
-		return err
-	}
-	requestLimiter, err := ratelimit.NewWeightLimiter(
-		settings.RequestWeightPerMinute,
-		settings.RequestWeightBurst,
-	)
-	if err != nil {
-		return err
-	}
-	binanceClient, err := binance.NewWithWeightLimiter(
-		settings.BinanceBaseURL,
-		httpClient,
-		requestLimiter,
-	)
+	clients, err := newMarketClients(settings)
 	if err != nil {
 		return err
 	}
 	universeService := universe.New(
-		binanceClient,
+		clients.rest,
 		postgres.NewUniverseRepository(resources.Pool),
 		universe.SystemClock{},
 		settings.QuoteAssets,
@@ -250,11 +256,25 @@ func runWorker(
 		settings.WSReconnectWait,
 		logger,
 	)
+	returnPipeline, err := newReturnPipeline(settings, resources, clients)
+	if err != nil {
+		return err
+	}
+	featureRunner, err := feature.NewRunner(
+		returnPipeline,
+		market.SnapshotInterval,
+		settings.FeatureCalculationDelay,
+		logger,
+	)
+	if err != nil {
+		return err
+	}
 	service := worker.New(
 		postgres.NewHeartbeatStore(resources.Pool),
 		universeService,
 		marketSupervisor,
 		snapshotCollector,
+		featureRunner,
 		settings.HeartbeatEvery,
 		settings.UniverseEvery,
 		logger,
@@ -271,4 +291,75 @@ func runAPI(
 ) error {
 	server := api.New(settings.WebListenAddr, settings.ShutdownTimeout, resources.Pool, logger)
 	return server.Run(ctx)
+}
+
+type marketClients struct {
+	rest    *binance.Client
+	archive *binancevision.Client
+}
+
+func newMarketClients(settings v2config.Settings) (marketClients, error) {
+	httpClient, err := httpjson.NewWithProxy(settings.HTTPTimeout, settings.HTTPMaxRetries, settings.ProxyURL)
+	if err != nil {
+		return marketClients{}, err
+	}
+	requestLimiter, err := ratelimit.NewWeightLimiter(settings.RequestWeightPerMinute, settings.RequestWeightBurst)
+	if err != nil {
+		return marketClients{}, err
+	}
+	restClient, err := binance.NewWithWeightLimiter(settings.BinanceBaseURL, httpClient, requestLimiter)
+	if err != nil {
+		return marketClients{}, err
+	}
+	archiveClient, err := binancevision.New(settings.ProxyURL)
+	if err != nil {
+		return marketClients{}, err
+	}
+	return marketClients{rest: restClient, archive: archiveClient}, nil
+}
+
+func newBackfillService(resources *postgres.Resources, clients marketClients) (*backfill.Service, error) {
+	return backfill.NewService(
+		postgres.NewKlineRepository(resources.Pool),
+		clients.archive,
+		clients.rest,
+		backfill.SystemClock{},
+	)
+}
+
+func newReturnPipeline(
+	settings v2config.Settings,
+	resources *postgres.Resources,
+	clients marketClients,
+) (*v2pipeline.ReturnPipeline, error) {
+	history, err := newBackfillService(resources, clients)
+	if err != nil {
+		return nil, err
+	}
+	calculator, err := feature.NewCalculator(feature.Policy{
+		CurrentMaxAge:     settings.FeatureCurrentMaxAge,
+		BaselineMaxOffset: settings.FeatureBaselineMaxOffset,
+		MinimumQuality:    settings.FeatureMinimumQuality,
+		LiquidityLookback: time.Hour,
+		FeatureVersion:    market.ReturnFeatureVersion1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	features, err := feature.NewService(
+		postgres.NewReturnFeatureRepository(resources.Pool),
+		calculator,
+		feature.SystemClock{},
+		settings.BackfillLookback,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return v2pipeline.NewReturnPipeline(
+		history,
+		postgres.NewBackfillAuditRepository(resources.Pool),
+		features,
+		settings.BackfillLookback,
+		settings.BackfillConcurrency,
+	)
 }

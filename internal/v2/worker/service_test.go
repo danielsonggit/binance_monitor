@@ -73,7 +73,11 @@ func TestServiceRecordsLifecycle(t *testing.T) {
 	recorder := &recordingHeartbeats{}
 	universeSyncer := &fakeUniverse{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	service := New(recorder, universeSyncer, blockingMarket{connected: true}, blockingSnapshots{healthy: true}, time.Millisecond, time.Hour, logger)
+	service := New(
+		recorder, universeSyncer,
+		blockingMarket{connected: true}, blockingSnapshots{healthy: true}, blockingSnapshots{healthy: true},
+		time.Millisecond, time.Hour, logger,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
 
@@ -97,7 +101,11 @@ func TestServiceStaysDegradedWhenInitialUniverseSyncFails(t *testing.T) {
 	recorder := &recordingHeartbeats{}
 	universeSyncer := &fakeUniverse{err: errors.New("binance unavailable")}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	service := New(recorder, universeSyncer, blockingMarket{connected: true}, blockingSnapshots{healthy: true}, time.Millisecond, time.Hour, logger)
+	service := New(
+		recorder, universeSyncer,
+		blockingMarket{connected: true}, blockingSnapshots{healthy: true}, blockingSnapshots{healthy: true},
+		time.Millisecond, time.Hour, logger,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Millisecond)
 	defer cancel()
 	if err := service.Run(ctx); err != nil {
@@ -123,6 +131,35 @@ func TestServiceDegradesWhenSnapshotCollectorIsUnhealthy(t *testing.T) {
 		recorder,
 		&fakeUniverse{},
 		blockingMarket{connected: true},
+		blockingSnapshots{healthy: false},
+		blockingSnapshots{healthy: true},
+		time.Millisecond,
+		time.Hour,
+		logger,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Millisecond)
+	defer cancel()
+	if err := service.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	for _, call := range recorder.calls {
+		if call.status == "DEGRADED" {
+			return
+		}
+	}
+	t.Fatalf("heartbeat calls = %#v", recorder.calls)
+}
+
+func TestServiceDegradesWhenFeatureRunnerIsUnhealthy(t *testing.T) {
+	recorder := &recordingHeartbeats{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	service := New(
+		recorder,
+		&fakeUniverse{},
+		blockingMarket{connected: true},
+		blockingSnapshots{healthy: true},
 		blockingSnapshots{healthy: false},
 		time.Millisecond,
 		time.Hour,

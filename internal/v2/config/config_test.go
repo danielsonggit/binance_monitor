@@ -26,10 +26,14 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("WS_STALE_AFTER_SECONDS", "40")
 	t.Setenv("WS_ROTATE_AFTER_MINUTES", "1200")
 	t.Setenv("WS_RECONNECT_WAIT_SECONDS", "6")
-	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "180")
+	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "420")
 	t.Setenv("SNAPSHOT_MAX_EVENT_AGE_SECONDS", "75")
 	t.Setenv("BACKFILL_LOOKBACK_HOURS", "36")
 	t.Setenv("BACKFILL_CONCURRENCY", "12")
+	t.Setenv("FEATURE_CURRENT_MAX_AGE_SECONDS", "240")
+	t.Setenv("FEATURE_BASELINE_MAX_OFFSET_SECONDS", "180")
+	t.Setenv("FEATURE_MINIMUM_QUALITY_SCORE", "80")
+	t.Setenv("FEATURE_CALCULATION_DELAY_SECONDS", "7")
 
 	settings, err := FromEnv()
 	if err != nil {
@@ -56,18 +60,24 @@ func TestFromEnv(t *testing.T) {
 	if settings.WSStaleAfter != 40*time.Second || settings.WSRotateAfter != 20*time.Hour || settings.WSReconnectWait != 6*time.Second {
 		t.Errorf("websocket settings = %s/%s/%s", settings.WSStaleAfter, settings.WSRotateAfter, settings.WSReconnectWait)
 	}
-	if settings.MarketWindow != 3*time.Hour || settings.SnapshotMaxAge != 75*time.Second {
+	if settings.MarketWindow != 7*time.Hour || settings.SnapshotMaxAge != 75*time.Second {
 		t.Errorf("snapshot settings = %s/%s", settings.MarketWindow, settings.SnapshotMaxAge)
 	}
 	if settings.BackfillLookback != 36*time.Hour || settings.BackfillConcurrency != 12 {
 		t.Errorf("backfill settings = %s/%d", settings.BackfillLookback, settings.BackfillConcurrency)
+	}
+	if settings.FeatureCurrentMaxAge != 4*time.Minute || settings.FeatureBaselineMaxOffset != 3*time.Minute ||
+		settings.FeatureMinimumQuality != 80 || settings.FeatureCalculationDelay != 7*time.Second {
+		t.Errorf("feature settings = %s/%s/%d/%s",
+			settings.FeatureCurrentMaxAge, settings.FeatureBaselineMaxOffset, settings.FeatureMinimumQuality,
+			settings.FeatureCalculationDelay)
 	}
 }
 
 func TestFromEnvRejectsShortMarketWindow(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/radar")
 	t.Setenv("HTTP_PROXY_URL", "")
-	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "59")
+	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "359")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("expected market window error")
 	}
@@ -88,6 +98,28 @@ func TestFromEnvRejectsExcessiveBackfillConcurrency(t *testing.T) {
 	t.Setenv("BACKFILL_CONCURRENCY", "33")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("expected backfill concurrency error")
+	}
+}
+
+func TestFromEnvRejectsUnsafeFeatureSettings(t *testing.T) {
+	tests := []struct {
+		key   string
+		value string
+	}{
+		{key: "FEATURE_CURRENT_MAX_AGE_SECONDS", value: "901"},
+		{key: "FEATURE_BASELINE_MAX_OFFSET_SECONDS", value: "901"},
+		{key: "FEATURE_MINIMUM_QUALITY_SCORE", value: "101"},
+		{key: "FEATURE_CALCULATION_DELAY_SECONDS", value: "300"},
+	}
+	for _, test := range tests {
+		t.Run(test.key, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/radar")
+			t.Setenv("HTTP_PROXY_URL", "")
+			t.Setenv(test.key, test.value)
+			if _, err := FromEnv(); err == nil {
+				t.Fatalf("expected %s error", test.key)
+			}
+		})
 	}
 }
 

@@ -25,7 +25,7 @@ flowchart TB
             UNIVERSE[Universe Sync]
             WSADAPTER[WebSocket Adapter]
             RESTCLIENT[REST Client]
-            CACHE[内存最新价与两小时环形缓存]
+            CACHE[内存最新价与六小时环形缓存]
             BARJOB[15m K线与衍生数据任务]
             QUALITY[Quality and Gap Checker]
             FEATURE[Feature Engine]
@@ -206,7 +206,7 @@ sequenceDiagram
 | `market_snapshots_5m` | `instrument_id, bucket_time, last_price, change_24h, volume_24h, quality` | 全市场快照；按月分区；唯一键为合约和窗口 |
 | `klines_15m` | `instrument_id, open_time, OHLCV, close_time, source` | 已完成 K 线；按月分区；幂等 upsert |
 | `derivative_snapshots` | `instrument_id, observed_at, open_interest, funding_rate, mark_price, taker_ratio` | 候选深度证据；按月分区 |
-| `feature_snapshots` | `instrument_id, calculated_at, feature_version, values_json, quality` | 可复现特征；热点列可独立存储 |
+| `return_feature_snapshots` | `instrument_id, as_of, feature_version, return_15m/1h/4h/24h, quality_json` | 一行四周期可复现收益；有效收益使用 typed numeric，诊断证据使用 JSON |
 | `rule_versions` | `id, version, sector, config_json, active_from, created_at` | 不可变规则配置 |
 | `signal_lifecycles` | `id, instrument_id, direction, current_state, started_at, closed_at, rule_version_id` | 每个活动生命周期唯一 |
 | `signal_events` | `id, lifecycle_id, from_state, to_state, occurred_at, score, evidence_json` | 不可变状态转移日志 |

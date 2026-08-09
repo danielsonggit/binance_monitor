@@ -7,13 +7,14 @@
 ## 当前阶段
 
 - Phase 0：产品与架构设计已完成；
-- Phase 1：数据库与采集底座进行中；
-- Phase 2 及以后：尚未开始。
+- Phase 1：数据库与采集开发项完成，连续影子验收留到 MHR-7；
+- Phase 2：多周期收益率与质量门禁已完成，候选排名和生命周期继续开发；
+- Phase 3 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
 
 1. CLI 已统一使用 Cobra；V1 默认 CLI 和部署行为保持兼容，显式 `binance-monitor v1` 也可进入 V1。
-2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill` 四个独立 V2 角色。
+2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features` 五个独立 V2 角色。
 3. V2 配置位于 `internal/v2/config`，不把数据库和 Web 配置混入 V1。
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
@@ -21,6 +22,7 @@
    - 合约有效期 `instruments`；
    - 分区表 `market_snapshots_5m`；
    - 分区表 `klines_15m`；
+   - 分区表 `return_feature_snapshots`；
    - 采集审计 `collection_runs`；
    - 组件心跳 `system_heartbeats`。
 7. V2 worker 已形成独立生命周期，能周期写入数据库心跳。
@@ -54,7 +56,7 @@
     - 连接、订阅、SDK error、watchdog 和轮换后统一重连；
     - worker 心跳根据行情连接状态进入 `HEALTHY` 或 `DEGRADED`。
 17. 已实现并发安全的最新行情内存视图，乱序事件不能覆盖更新事件。
-18. 已实现每个合约两小时的有界分钟行情窗口：
+18. 已实现每个合约六小时的有界分钟行情窗口：
     - 自然分钟边界采样；
     - 同一分钟幂等覆盖；
     - 乱序插入仍保持时间有序；
@@ -66,7 +68,7 @@
     涨幅由 decimal 精确计算，不经过 `float64`。
 21. `collection_runs` 会记录每个窗口的预期、实际、缺失数量和缺失 symbol；重复 bucket
     返回已有结果，不产生重复行。
-22. worker 重启时从最近两小时的 PostgreSQL 5 分钟快照预热窗口，并从最后一次 run 开始
+22. worker 重启时从最近六小时的 PostgreSQL 5 分钟快照预热窗口，并从最后一次 run 开始
     登记停机期间无法由 miniTicker 精确回补的窗口。当前采集恢复后健康状态可恢复，历史缺口仍可查询。
 23. 已用真实 PostgreSQL 验证快照 numeric 编码、批量事务、缺失记录、bucket 幂等、窗口预热
     和停机缺口登记。
@@ -97,6 +99,14 @@
     - `collection_runs` 保存每个缺口的 `RECOVERED/PARTIAL/MISSING`、剩余点数和最后错误；
     - jmk 真实空库回补 716 个合约、85,920 个目标点，最终缺口 0、失败 0；
     - jmk 独立临时测试库覆盖空历史、部分历史、中间缺口和重复回补，测试后已删除。
+28. 已完成 MHR-4 多周期收益率与质量门禁：
+    - 统一计算 15m、1h、4h、24h 收益率，保留实际基准时点、来源、偏差和窗口缺口；
+    - 当前价/基准缺失或陈旧、低质量快照、K 线缺口、新上市历史不足和零流动性均产生稳定原因码；
+    - 无效收益写为 SQL `NULL`，数据库约束禁止无效记录伪装成零收益；
+    - migration 3 使用每 symbol/as_of/version 一行保存四周期 typed return 和 JSON 质量证据；
+    - `features` 命令及 worker 共用“增量回补 → 计算 → 幂等保存”pipeline；
+    - jmk 完整 K 线边界实算 716 个标的，2,860 个指标有效，4 个因 `BITOUSDT` 零流动性排除；
+    - 同一时点重算仍为 716 行和 1 条计算审计；真实 worker smoke 完成后正常停止。
 
 `backfill` 已可执行真实历史回补：
 
@@ -107,6 +117,15 @@ binance-monitor backfill --env-file /absolute/path/.env.v2
 默认回补最近 30 小时已完成的 15 分钟 K 线。`BACKFILL_LOOKBACK_HOURS` 不得小于 25，
 `BACKFILL_CONCURRENCY` 默认 8、最大 32。输出包括覆盖数、写入数、归档/REST 请求数、
 剩余缺口和失败区间；完整审计保存在 PostgreSQL `collection_runs`。
+
+单次补齐行情并计算多周期收益率：
+
+```bash
+binance-monitor features --env-file /absolute/path/.env.v2
+```
+
+worker 启动后会在每个自然 5 分钟边界后执行同一流水线。默认当前价和基准价最多偏离 5 分钟，
+快照最低质量分 75，最近 60 分钟成交额为 0 的标的不产生有效收益。
 
 ## 本地启动 V2 基础设施
 
@@ -179,7 +198,7 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 实现 15m/1h/4h/24h 收益率和数据完整度门禁；
-2. 使用已完成 K 线补充重启后的精确历史，miniTicker 缺口只作质量记录，不伪造回补；
-3. 按 Crypto/TradFi 生成稳定 Top N，并保存可复现计算快照；
-4. 增加采集完整率和最近缺口的只读健康 API。
+1. 按 Crypto/TradFi 和 15m/1h/4h/24h 生成稳定 Top N；
+2. 使用收益率、24h 成交额和 symbol 建立完全确定的并列排序；
+3. 保存可复现榜单快照，保证任何无效指标都无法进入榜单；
+4. 增加收益率、排名、采集完整率和最近缺口的只读 API。

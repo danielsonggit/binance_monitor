@@ -29,11 +29,17 @@ type SnapshotRunner interface {
 	Health() (bool, time.Time, string)
 }
 
+type FeatureRunner interface {
+	Run(context.Context) error
+	Health() (bool, time.Time, string)
+}
+
 type Service struct {
 	heartbeats     HeartbeatRecorder
 	universe       UniverseSyncer
 	market         MarketRunner
 	snapshots      SnapshotRunner
+	features       FeatureRunner
 	heartbeatEvery time.Duration
 	universeEvery  time.Duration
 	logger         *slog.Logger
@@ -44,6 +50,7 @@ func New(
 	universeSyncer UniverseSyncer,
 	marketRunner MarketRunner,
 	snapshotRunner SnapshotRunner,
+	featureRunner FeatureRunner,
 	heartbeatEvery time.Duration,
 	universeEvery time.Duration,
 	logger *slog.Logger,
@@ -53,6 +60,7 @@ func New(
 		universe:       universeSyncer,
 		market:         marketRunner,
 		snapshots:      snapshotRunner,
+		features:       featureRunner,
 		heartbeatEvery: heartbeatEvery,
 		universeEvery:  universeEvery,
 		logger:         logger,
@@ -62,19 +70,22 @@ func New(
 func (s *Service) Run(ctx context.Context) error {
 	runContext, cancelRunners := context.WithCancel(ctx)
 	defer cancelRunners()
-	if err := s.record(ctx, "STARTING", "", false, time.Time{}, "", false, time.Time{}, ""); err != nil {
+	if err := s.record(ctx, "STARTING", "", false, time.Time{}, "", false, time.Time{}, "", false, time.Time{}, ""); err != nil {
 		return err
 	}
 	type runnerError struct {
 		name string
 		err  error
 	}
-	runnerErrors := make(chan runnerError, 2)
+	runnerErrors := make(chan runnerError, 3)
 	go func() {
 		runnerErrors <- runnerError{name: "market", err: s.market.Run(runContext)}
 	}()
 	go func() {
 		runnerErrors <- runnerError{name: "snapshot", err: s.snapshots.Run(runContext)}
+	}()
+	go func() {
+		runnerErrors <- runnerError{name: "feature", err: s.features.Run(runContext)}
 	}()
 	lastUniverseError := s.syncUniverse(ctx)
 	if err := s.recordCurrentStatus(ctx, lastUniverseError); err != nil {
@@ -95,7 +106,7 @@ func (s *Service) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if err := s.record(shutdownContext, "STOPPING", "", false, time.Time{}, "", false, time.Time{}, ""); err != nil {
+			if err := s.record(shutdownContext, "STOPPING", "", false, time.Time{}, "", false, time.Time{}, "", false, time.Time{}, ""); err != nil {
 				s.logger.Warn("记录 worker 停止状态失败", "error", err)
 			}
 			return nil
@@ -142,13 +153,14 @@ func (s *Service) syncUniverse(ctx context.Context) error {
 func (s *Service) recordCurrentStatus(ctx context.Context, universeError error) error {
 	marketConnected, lastMarketEvent, marketError := s.market.Health()
 	snapshotHealthy, lastSnapshot, snapshotError := s.snapshots.Health()
+	featureHealthy, lastFeature, featureError := s.features.Health()
 	if universeError != nil {
-		return s.record(ctx, "DEGRADED", universeError.Error(), marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError)
+		return s.record(ctx, "DEGRADED", universeError.Error(), marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
 	}
-	if !marketConnected || !snapshotHealthy {
-		return s.record(ctx, "DEGRADED", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError)
+	if !marketConnected || !snapshotHealthy || !featureHealthy {
+		return s.record(ctx, "DEGRADED", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
 	}
-	return s.record(ctx, "HEALTHY", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError)
+	return s.record(ctx, "HEALTHY", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
 }
 
 func (s *Service) record(
@@ -161,9 +173,12 @@ func (s *Service) record(
 	snapshotHealthy bool,
 	lastSnapshot time.Time,
 	snapshotError string,
+	featureHealthy bool,
+	lastFeature time.Time,
+	featureError string,
 ) error {
 	return s.heartbeats.Record(ctx, componentName, status, map[string]any{
-		"phase":             "phase1-market-snapshots",
+		"phase":             "phase2-return-features",
 		"universe_error":    universeError,
 		"market_connected":  marketConnected,
 		"last_market_event": lastMarketEvent,
@@ -171,5 +186,8 @@ func (s *Service) record(
 		"snapshot_healthy":  snapshotHealthy,
 		"last_snapshot":     lastSnapshot,
 		"snapshot_error":    snapshotError,
+		"feature_healthy":   featureHealthy,
+		"last_feature":      lastFeature,
+		"feature_error":     featureError,
 	})
 }

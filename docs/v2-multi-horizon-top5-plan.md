@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | ACTIVE |
-| 当前阶段 | MHR-4：多周期收益率与质量门禁 |
+| 当前阶段 | MHR-5：分板块稳定排名 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-09 |
@@ -163,11 +163,12 @@ flowchart LR
 - PostgreSQL 连接、迁移和 `klines_15m` 表。
 - Binance universe 同步。
 - Binance 官方 WebSocket SDK 实时行情接入。
-- WebSocket 看门狗、latest store、两小时分钟窗口与 5 分钟快照。
+- WebSocket 看门狗、latest store、六小时分钟窗口与 5 分钟快照。
 - PostgreSQL 批量写入、数据缺口标记、重启预热。
 - 真实 PostgreSQL 集成测试与 jmk 代理链路冒烟验证。
 
-当前两小时内存窗口不足以直接计算 4 小时和 24 小时收益率，因此必须以 PostgreSQL 历史数据和 K 线回补作为主路径；后续可将热窗口扩展为至少 6 小时，用于低延迟计算 15m/1h/4h。
+当前热窗口已扩展至至少 6 小时，用于低延迟的 15m/1h/4h 价格历史；可复现计算仍统一读取
+PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 PostgreSQL 历史为事实来源。
 
 ## 9. 主要阻碍与处理策略
 
@@ -190,8 +191,8 @@ flowchart LR
 | MHR-1 | 15m K 线领域模型与 Binance REST 客户端 | COMPLETED | 参数校验、响应解析、错误处理和单元测试全部通过 | 0.5–1 天 |
 | MHR-2 | 限速采集与 PostgreSQL 幂等写入 | COMPLETED | 全局限速、重试、批写、重复写安全；集成测试通过 | 1–1.5 天 |
 | MHR-3 | 历史回补与缺口恢复 | COMPLETED | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
-| MHR-4 | 多周期收益率与质量门禁 | IN_PROGRESS | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
-| MHR-5 | 分板块稳定排名 | PENDING | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
+| MHR-4 | 多周期收益率与质量门禁 | COMPLETED | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
+| MHR-5 | 分板块稳定排名 | IN_PROGRESS | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
 | MHR-6 | API 与 Telegram 报告 | PENDING | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
 | MHR-7 | 影子运行、部署与验收 | PENDING | jmk 连续运行 24–72 小时；延迟、覆盖率、缺口达标 | 1–3 天观察期 |
 
@@ -306,13 +307,55 @@ flowchart LR
   直连 PostgreSQL 容器 IP；没有修改 Clash、7891、V1 或其他服务。正式容器化 worker 上线前仍需
   单独解决容器到 7890 的最小权限网络路径。
 
-## 14. 后续阶段验收摘要
+## 14. MHR-4 验收结果
 
-### MHR-4
+- [x] 使用精确十进制计算 15m、1h、4h、24h 收益率，不经过 `float64`。
+- [x] 当前价与基准价均选择不晚于目标时点的最近有效价格，并保留实际时点、来源和偏差秒数。
+- [x] 表驱动测试覆盖上涨、下跌、零变化、5 分钟边界、缺口、陈旧数据、低质量快照和新上市。
+- [x] 当前价格缺失/陈旧、基准缺失/偏差过大、快照质量不足、K 线缺口和零流动性均有稳定原因码。
+- [x] 无效周期的 typed return 列为 `NULL`，不得以零值进入后续排名。
+- [x] `return_feature_snapshots` 每个 symbol/as_of/version 只保存一行四周期结果，同一时点重算幂等。
+- [x] 计算前自动执行增量 backfill；单个标的历史不足只影响自身，不阻塞健康标的。
+- [x] worker 在自然 5 分钟边界后等待快照落库，再执行回补与特征计算，并把健康状态写入 heartbeat。
+- [x] 15m/1h/4h 热窗口至少保留 6 小时；24h 从 PostgreSQL 读取。
+- [x] PostgreSQL 集成测试和 jmk 真实 716 标的计算通过。
 
-- 表驱动测试覆盖上涨、下跌、零变化、边界时间、缺口、陈旧数据和新上市。
-- 结果包含实际基准时点和偏差，不只返回一个百分比。
-- 15m/1h/4h 热计算窗口至少覆盖 6 小时；24h 从 PostgreSQL 读取。
+验收证据：
+
+- 领域模型：`internal/domain/market/return_feature.go`；每个指标包含 target、实际 baseline、offset、
+  gap count、有效性和 invalid reason。
+- 计算与调度：`internal/feature`；数据质量原因码包括 `CURRENT_PRICE_STALE`、
+  `BASELINE_PRICE_MISSING`、`BASELINE_PRICE_TOO_OLD`、`KLINE_GAPS` 和
+  `NO_RECENT_LIQUIDITY` 等。
+- PostgreSQL migration 3 新增分区表 `return_feature_snapshots`。排名所需四个收益率为 typed numeric
+  列，详细基准证据保存在 `quality_json`；数据库约束保证 valid 状态与 nullable return 一致。
+- `features` 命令提供单次“增量回补 → 计算 → 幂等保存”，worker 每 5 分钟复用同一 pipeline，
+  没有复制第二套公式。
+- jmk `2026-08-09 12:55 UTC` 计算时因没有常驻 5 分钟快照，最近 K 线落后 10 分钟，2,864 个
+  指标全部被正确标记为 `CURRENT_PRICE_STALE`，证明陈旧价格不能进入排名。
+- jmk `2026-08-09 13:00 UTC` 完整 K 线边界复验：716 个标的写入 716 行；715 个标的四周期
+  全部有效，共 2,860 个有效指标。`BITOUSDT` 最近一小时成交额为 0，其四周期均以
+  `NO_RECENT_LIQUIDITY` 排除。
+- BTCUSDT、ETHUSDT、XAUUSDT 的当前价、15m/1h/4h/24h 基准 K 线与计算结果逐项核对一致；
+  例如 BTCUSDT 当前价 64,928.5，24h 基准 64,973.8，结果为 -0.069720410381%。
+- 同一 `13:00 UTC` 重算后特征表仍为 716 行、计算审计仍为 1 行；重算更新证据但不产生重复。
+- jmk worker 短时 smoke 成功连接 WebSocket、同步 716 个合约并在启动时完成 2,860/4 的
+  有效/无效指标计算；测试随后正常停止，没有留下常驻进程。
+- 独立临时 jmk 测试库执行 migration、联合查询、有效/无效落库和重复重算集成测试通过，测试库已删除。
+- `go test -count=1 ./...`、`go vet ./...`、目标模块 race 和 `git diff --check` 全部通过。
+
+关键决定：
+
+- 5 分钟快照与 15 分钟 K 线在同一时点重复时，优先使用官方已完成 K 线；其他 5 分钟边界可由
+  合格快照补足。当前价和基准价默认最大偏差均为 5 分钟。
+- 任一目标窗口缺少应有的完整 15 分钟 K 线，该周期即使端点价格存在也标记为无效，避免用两个
+  偶然端点掩盖中间断流。
+- 最近一小时 K 线成交额为 0 时视为不可交易状态，Crypto 与 TradFi 使用相同最低数据质量底线；
+  后续可在有真实样本后为 TradFi 增加更细的交易时段规则。
+- 每标的每 5 分钟保存一行四周期结果，而不是四行，以将长期存储量降低约 75%；排名使用 typed
+  return 列，诊断使用 JSON 证据。
+
+## 15. 后续阶段验收摘要
 
 ### MHR-5
 
@@ -332,7 +375,7 @@ flowchart LR
 - 连续观察期间无持续缺口，计算延迟和有效 universe 覆盖率达到配置阈值。
 - 人工抽样与 Binance K 线原始值复核至少 10 个 symbol × 4 个周期。
 
-## 15. 文档更新规则
+## 16. 文档更新规则
 
 每完成一个阶段，必须在同一个代码变更中更新本文档：
 
@@ -343,7 +386,7 @@ flowchart LR
 5. 新发现的风险必须进入“主要阻碍与处理策略”，不能只留在聊天记录中。
 6. 需求发生变化时先更新本文档，再修改代码。
 
-## 16. 执行记录
+## 17. 执行记录
 
 ### 2026-08-09 — MHR-0 完成，MHR-1 开始
 
@@ -381,3 +424,16 @@ flowchart LR
 - 在 jmk 正式 V2 数据库完成 716 个合约的 30 小时空库回补，最终缺口和失败均为 0。
 - 在 jmk 独立临时测试库完成空历史、部分历史、中间缺口、重复回补及审计集成测试；测试库已删除。
 - 全仓库测试、vet、目标模块 race 和 diff 检查通过；下一步实现多周期收益率与质量门禁。
+
+### 2026-08-09 — MHR-4 完成，MHR-5 开始
+
+- 建立版本化四周期收益领域模型，返回值保留当前价、目标基准、实际基准、来源、偏差和缺口证据。
+- 实现统一质量门禁，陈旧、缺失、低质量、中间缺口、新上市历史不足和零流动性不会产生有效收益。
+- migration 3 新增一行四周期的 `return_feature_snapshots`，typed return 支持后续稳定排名，
+  `quality_json` 支持解释与追溯。
+- 新增 `features` 手动命令，并把“增量回补 → 特征计算”pipeline 接入 worker 的五分钟生命周期和 heartbeat。
+- 将分钟热窗口下限从两小时扩展到六小时；24h 计算继续从 PostgreSQL 加载。
+- jmk 实算 716 个标的、2,864 个周期；完整 K 线边界下 2,860 个有效，4 个因真实零流动性排除。
+- 同一时点重算保持 716 行和 1 条审计；worker 启动 smoke 后已正常停止。
+- 全仓库测试、vet、目标模块 race、jmk 临时 PostgreSQL 集成测试和 diff 检查通过。
+- 下一步按 Crypto/TradFi 和周期生成稳定 Top N，并确保任何无效指标均无法进入榜单。
