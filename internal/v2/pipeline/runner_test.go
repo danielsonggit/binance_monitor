@@ -1,4 +1,4 @@
-package feature
+package pipeline
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"binance-monitor/internal/feature"
+	"binance-monitor/internal/ranking"
 )
 
 type recordingCalculateAt struct {
@@ -22,7 +25,10 @@ func (r *recordingCalculateAt) RunAt(_ context.Context, asOf time.Time) (Result,
 
 func TestRunnerCalculateUpdatesHealth(t *testing.T) {
 	asOf := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	service := &recordingCalculateAt{result: Result{AsOf: asOf, Symbols: 1, ValidMetrics: 4, Written: 1}}
+	service := &recordingCalculateAt{result: Result{
+		Features: feature.Result{AsOf: asOf, Symbols: 1, ValidMetrics: 4, Written: 1},
+		Rankings: ranking.Result{AsOf: asOf, Groups: 8, Items: 8},
+	}}
 	runner, err := NewRunner(service, 5*time.Minute, 5*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +44,7 @@ func TestRunnerCalculateUpdatesHealth(t *testing.T) {
 
 func TestRunnerPreservesLastSuccessWhenNextCycleFails(t *testing.T) {
 	asOf := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	service := &recordingCalculateAt{result: Result{AsOf: asOf}}
+	service := &recordingCalculateAt{result: Result{Features: feature.Result{AsOf: asOf}}}
 	runner, _ := NewRunner(service, 5*time.Minute, 5*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := runner.Calculate(context.Background(), asOf); err != nil {
 		t.Fatal(err)

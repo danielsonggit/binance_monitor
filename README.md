@@ -10,9 +10,10 @@
 > V2 市场雷达正在 `feature/v2-market-radar` 分支开发。V2 的产品、业务架构、
 > 技术架构和执行计划参见 [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
 
-V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 小时历史回补，以及
-15m/1h/4h/24h 收益率和质量门禁。已完成 UTC 日优先使用 Binance 官方校验归档，当前日和缺口
-使用 Futures REST；`features` 命令和 worker 共用五分钟计算流水线。执行方法、
+V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 小时历史回补、
+15m/1h/4h/24h 收益率和质量门禁，以及 Crypto/TradFi 分板块确定性 Top 5。
+已完成 UTC 日优先使用 Binance 官方校验归档，当前日和缺口使用 Futures REST；`features`
+命令和 worker 共用五分钟“回补 → 收益 → 排名”流水线，`rankings --as-of` 支持历史时点重放。执行方法、
 环境变量和验收结果见 [V2 开发进度](docs/v2-development.md) 与
 [多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。
 

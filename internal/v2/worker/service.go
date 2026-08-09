@@ -29,7 +29,7 @@ type SnapshotRunner interface {
 	Health() (bool, time.Time, string)
 }
 
-type FeatureRunner interface {
+type AnalysisRunner interface {
 	Run(context.Context) error
 	Health() (bool, time.Time, string)
 }
@@ -39,7 +39,7 @@ type Service struct {
 	universe       UniverseSyncer
 	market         MarketRunner
 	snapshots      SnapshotRunner
-	features       FeatureRunner
+	analysis       AnalysisRunner
 	heartbeatEvery time.Duration
 	universeEvery  time.Duration
 	logger         *slog.Logger
@@ -50,7 +50,7 @@ func New(
 	universeSyncer UniverseSyncer,
 	marketRunner MarketRunner,
 	snapshotRunner SnapshotRunner,
-	featureRunner FeatureRunner,
+	analysisRunner AnalysisRunner,
 	heartbeatEvery time.Duration,
 	universeEvery time.Duration,
 	logger *slog.Logger,
@@ -60,7 +60,7 @@ func New(
 		universe:       universeSyncer,
 		market:         marketRunner,
 		snapshots:      snapshotRunner,
-		features:       featureRunner,
+		analysis:       analysisRunner,
 		heartbeatEvery: heartbeatEvery,
 		universeEvery:  universeEvery,
 		logger:         logger,
@@ -85,7 +85,7 @@ func (s *Service) Run(ctx context.Context) error {
 		runnerErrors <- runnerError{name: "snapshot", err: s.snapshots.Run(runContext)}
 	}()
 	go func() {
-		runnerErrors <- runnerError{name: "feature", err: s.features.Run(runContext)}
+		runnerErrors <- runnerError{name: "analysis", err: s.analysis.Run(runContext)}
 	}()
 	lastUniverseError := s.syncUniverse(ctx)
 	if err := s.recordCurrentStatus(ctx, lastUniverseError); err != nil {
@@ -153,14 +153,14 @@ func (s *Service) syncUniverse(ctx context.Context) error {
 func (s *Service) recordCurrentStatus(ctx context.Context, universeError error) error {
 	marketConnected, lastMarketEvent, marketError := s.market.Health()
 	snapshotHealthy, lastSnapshot, snapshotError := s.snapshots.Health()
-	featureHealthy, lastFeature, featureError := s.features.Health()
+	analysisHealthy, lastAnalysis, analysisError := s.analysis.Health()
 	if universeError != nil {
-		return s.record(ctx, "DEGRADED", universeError.Error(), marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
+		return s.record(ctx, "DEGRADED", universeError.Error(), marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, analysisHealthy, lastAnalysis, analysisError)
 	}
-	if !marketConnected || !snapshotHealthy || !featureHealthy {
-		return s.record(ctx, "DEGRADED", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
+	if !marketConnected || !snapshotHealthy || !analysisHealthy {
+		return s.record(ctx, "DEGRADED", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, analysisHealthy, lastAnalysis, analysisError)
 	}
-	return s.record(ctx, "HEALTHY", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, featureHealthy, lastFeature, featureError)
+	return s.record(ctx, "HEALTHY", "", marketConnected, lastMarketEvent, marketError, snapshotHealthy, lastSnapshot, snapshotError, analysisHealthy, lastAnalysis, analysisError)
 }
 
 func (s *Service) record(
@@ -173,12 +173,12 @@ func (s *Service) record(
 	snapshotHealthy bool,
 	lastSnapshot time.Time,
 	snapshotError string,
-	featureHealthy bool,
-	lastFeature time.Time,
-	featureError string,
+	analysisHealthy bool,
+	lastAnalysis time.Time,
+	analysisError string,
 ) error {
 	return s.heartbeats.Record(ctx, componentName, status, map[string]any{
-		"phase":             "phase2-return-features",
+		"phase":             "phase2-multi-horizon-rankings",
 		"universe_error":    universeError,
 		"market_connected":  marketConnected,
 		"last_market_event": lastMarketEvent,
@@ -186,8 +186,8 @@ func (s *Service) record(
 		"snapshot_healthy":  snapshotHealthy,
 		"last_snapshot":     lastSnapshot,
 		"snapshot_error":    snapshotError,
-		"feature_healthy":   featureHealthy,
-		"last_feature":      lastFeature,
-		"feature_error":     featureError,
+		"analysis_healthy":  analysisHealthy,
+		"last_analysis":     lastAnalysis,
+		"analysis_error":    analysisError,
 	})
 }

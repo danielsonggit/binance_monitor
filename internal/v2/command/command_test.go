@@ -14,11 +14,23 @@ func TestCommandsHaveUniqueNames(t *testing.T) {
 		}
 		seen[command.Name()] = struct{}{}
 	}
-	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features"} {
+	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings"} {
 		if _, exists := seen[expected]; !exists {
 			t.Errorf("missing command %q", expected)
 		}
 	}
+}
+
+func TestRankingsCommandExposesReplayTimeFlag(t *testing.T) {
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		if command.Name() == "rankings" {
+			if command.Flags().Lookup("as-of") == nil {
+				t.Fatal("rankings command missing --as-of")
+			}
+			return
+		}
+	}
+	t.Fatal("rankings command not found")
 }
 
 func TestHelpDoesNotRequireDatabase(t *testing.T) {

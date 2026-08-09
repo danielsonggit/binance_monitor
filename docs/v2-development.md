@@ -8,13 +8,13 @@
 
 - Phase 0：产品与架构设计已完成；
 - Phase 1：数据库与采集开发项完成，连续影子验收留到 MHR-7；
-- Phase 2：多周期收益率与质量门禁已完成，候选排名和生命周期继续开发；
+- Phase 2：多周期收益率、质量门禁和分板块排名已完成，候选信号与生命周期继续开发；
 - Phase 3 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
 
 1. CLI 已统一使用 Cobra；V1 默认 CLI 和部署行为保持兼容，显式 `binance-monitor v1` 也可进入 V1。
-2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features` 五个独立 V2 角色。
+2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings` 六个独立 V2 角色。
 3. V2 配置位于 `internal/v2/config`，不把数据库和 Web 配置混入 V1。
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
@@ -23,6 +23,7 @@
    - 分区表 `market_snapshots_5m`；
    - 分区表 `klines_15m`；
    - 分区表 `return_feature_snapshots`；
+   - 分区榜单头 `ranking_snapshots` 与榜单项 `ranking_snapshot_items`；
    - 采集审计 `collection_runs`；
    - 组件心跳 `system_heartbeats`。
 7. V2 worker 已形成独立生命周期，能周期写入数据库心跳。
@@ -107,6 +108,15 @@
     - `features` 命令及 worker 共用“增量回补 → 计算 → 幂等保存”pipeline；
     - jmk 完整 K 线边界实算 716 个标的，2,860 个指标有效，4 个因 `BITOUSDT` 零流动性排除；
     - 同一时点重算仍为 716 行和 1 条计算审计；真实 worker smoke 完成后正常停止。
+29. 已完成 MHR-5 分板块稳定排名：
+    - Crypto/TradFi × 15m/1h/4h/24h 固定生成 8 个独立榜单组；
+    - 只接受质量有效且收益率大于 0 的标的，不使用持平或下跌标的凑足 Top 5；
+    - 排序键固定为收益率降序、24h 成交额降序、symbol 升序，同一输入必然得到同一结果；
+    - 榜单保存 active、eligible、positive、ranked 四层计数、板块分位数和算法/特征版本；
+    - migration 4/5 新增分区榜单存储和正收益计数，重复生成在同一事务替换明细；
+    - `rankings --as-of` 可仅依赖已落库特征重放指定五分钟时点，不访问 Binance；
+    - jmk `13:45 UTC` 实算 2,864 个周期，2,860 个质量有效、1,526 个正收益，保存 8 组 40 项；
+    - 同时点重放后仍为 8 组、40 项、1 条排名审计，且非正收益榜单项为 0。
 
 `backfill` 已可执行真实历史回补：
 
@@ -118,7 +128,7 @@ binance-monitor backfill --env-file /absolute/path/.env.v2
 `BACKFILL_CONCURRENCY` 默认 8、最大 32。输出包括覆盖数、写入数、归档/REST 请求数、
 剩余缺口和失败区间；完整审计保存在 PostgreSQL `collection_runs`。
 
-单次补齐行情并计算多周期收益率：
+单次补齐行情并计算多周期收益率与榜单：
 
 ```bash
 binance-monitor features --env-file /absolute/path/.env.v2
@@ -126,6 +136,15 @@ binance-monitor features --env-file /absolute/path/.env.v2
 
 worker 启动后会在每个自然 5 分钟边界后执行同一流水线。默认当前价和基准价最多偏离 5 分钟，
 快照最低质量分 75，最近 60 分钟成交额为 0 的标的不产生有效收益。
+
+仅使用已落库特征重放指定时点榜单：
+
+```bash
+binance-monitor rankings --as-of 2026-08-09T13:45:00Z --env-file /absolute/path/.env.v2
+```
+
+`RANKING_TOP_N` 默认 5、最大 100。涨幅榜只保存正收益标的；质量有效数和正收益数分别记录，
+因此“市场整体下跌”和“数据缺失”不会被混为同一种情况。
 
 ## 本地启动 V2 基础设施
 
@@ -198,7 +217,7 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 按 Crypto/TradFi 和 15m/1h/4h/24h 生成稳定 Top N；
-2. 使用收益率、24h 成交额和 symbol 建立完全确定的并列排序；
-3. 保存可复现榜单快照，保证任何无效指标都无法进入榜单；
-4. 增加收益率、排名、采集完整率和最近缺口的只读 API。
+1. 增加收益率、排名、采集完整率和最近缺口的只读 API；
+2. 为多周期涨幅榜生成 Telegram 安全分段模板；
+3. Telegram 继续只推送涨幅 Top 5，不恢复跌幅榜；
+4. 增加发送失败观测、有限重试和业务幂等测试。

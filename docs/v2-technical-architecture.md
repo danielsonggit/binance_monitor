@@ -207,6 +207,8 @@ sequenceDiagram
 | `klines_15m` | `instrument_id, open_time, OHLCV, close_time, source` | 已完成 K 线；按月分区；幂等 upsert |
 | `derivative_snapshots` | `instrument_id, observed_at, open_interest, funding_rate, mark_price, taker_ratio` | 候选深度证据；按月分区 |
 | `return_feature_snapshots` | `instrument_id, as_of, feature_version, return_15m/1h/4h/24h, quality_json` | 一行四周期可复现收益；有效收益使用 typed numeric，诊断证据使用 JSON |
+| `ranking_snapshots` | `as_of, ranking_version, feature_version, sector, horizon, active/eligible/positive/ranked_count` | 每个板块周期的版本化榜单头和覆盖率；按时间分区 |
+| `ranking_snapshot_items` | `ranking_snapshot_id, rank_position, instrument_id, return_percent, percentile` | 只保存正收益 Top N；同一榜单 rank 和 symbol 均唯一；按时间分区 |
 | `rule_versions` | `id, version, sector, config_json, active_from, created_at` | 不可变规则配置 |
 | `signal_lifecycles` | `id, instrument_id, direction, current_state, started_at, closed_at, rule_version_id` | 每个活动生命周期唯一 |
 | `signal_events` | `id, lifecycle_id, from_state, to_state, occurred_at, score, evidence_json` | 不可变状态转移日志 |

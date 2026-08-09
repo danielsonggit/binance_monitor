@@ -152,7 +152,7 @@ func TestServiceDegradesWhenSnapshotCollectorIsUnhealthy(t *testing.T) {
 	t.Fatalf("heartbeat calls = %#v", recorder.calls)
 }
 
-func TestServiceDegradesWhenFeatureRunnerIsUnhealthy(t *testing.T) {
+func TestServiceDegradesWhenAnalysisRunnerIsUnhealthy(t *testing.T) {
 	recorder := &recordingHeartbeats{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	service := New(

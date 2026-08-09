@@ -7,6 +7,7 @@ import (
 
 	"binance-monitor/internal/backfill"
 	"binance-monitor/internal/feature"
+	"binance-monitor/internal/ranking"
 )
 
 type HistoryBackfiller interface {
@@ -17,6 +18,10 @@ type FeatureCalculator interface {
 	RunAt(context.Context, time.Time) (feature.Result, error)
 }
 
+type RankingCalculator interface {
+	RunAt(context.Context, time.Time) (ranking.Result, error)
+}
+
 type HistoryAuditor interface {
 	Record(context.Context, backfill.Result, time.Time, time.Time) error
 }
@@ -25,37 +30,54 @@ type ReturnPipeline struct {
 	history          HistoryBackfiller
 	auditor          HistoryAuditor
 	features         FeatureCalculator
+	rankings         RankingCalculator
 	backfillLookback time.Duration
 	backfillWorkers  int
+}
+
+type Result struct {
+	Features feature.Result
+	Rankings ranking.Result
 }
 
 func NewReturnPipeline(
 	history HistoryBackfiller,
 	auditor HistoryAuditor,
 	features FeatureCalculator,
+	rankings RankingCalculator,
 	backfillLookback time.Duration,
 	backfillWorkers int,
 ) (*ReturnPipeline, error) {
-	if history == nil || auditor == nil || features == nil || backfillLookback < 24*time.Hour || backfillWorkers <= 0 {
+	if history == nil || auditor == nil || features == nil || rankings == nil || backfillLookback < 24*time.Hour || backfillWorkers <= 0 {
 		return nil, fmt.Errorf("return pipeline 配置或依赖无效")
 	}
 	return &ReturnPipeline{
-		history: history, auditor: auditor, features: features,
+		history: history, auditor: auditor, features: features, rankings: rankings,
 		backfillLookback: backfillLookback, backfillWorkers: backfillWorkers,
 	}, nil
 }
 
-func (p *ReturnPipeline) RunAt(ctx context.Context, asOf time.Time) (feature.Result, error) {
+func (p *ReturnPipeline) RunAt(ctx context.Context, asOf time.Time) (Result, error) {
 	startedAt := time.Now().UTC()
 	history, err := p.history.Run(ctx, p.backfillLookback, p.backfillWorkers)
 	if err != nil {
-		return feature.Result{}, fmt.Errorf("收益计算前历史回补: %w", err)
+		return Result{}, fmt.Errorf("收益计算前历史回补: %w", err)
 	}
 	if err := p.auditor.Record(ctx, history, startedAt, time.Now().UTC()); err != nil {
-		return feature.Result{}, fmt.Errorf("记录收益计算前回补审计: %w", err)
+		return Result{}, fmt.Errorf("记录收益计算前回补审计: %w", err)
 	}
 	// A newly listed or temporarily illiquid symbol can legitimately retain
 	// gaps. The feature calculator records those horizons as invalid; it must
 	// not prevent healthy symbols from being calculated.
-	return p.features.RunAt(ctx, asOf)
+	features, err := p.features.RunAt(ctx, asOf)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{Features: features}
+	rankings, err := p.rankings.RunAt(ctx, asOf)
+	if err != nil {
+		return result, fmt.Errorf("收益计算后生成排名: %w", err)
+	}
+	result.Rankings = rankings
+	return result, nil
 }

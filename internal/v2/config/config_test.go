@@ -34,6 +34,7 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("FEATURE_BASELINE_MAX_OFFSET_SECONDS", "180")
 	t.Setenv("FEATURE_MINIMUM_QUALITY_SCORE", "80")
 	t.Setenv("FEATURE_CALCULATION_DELAY_SECONDS", "7")
+	t.Setenv("RANKING_TOP_N", "8")
 
 	settings, err := FromEnv()
 	if err != nil {
@@ -71,6 +72,9 @@ func TestFromEnv(t *testing.T) {
 		t.Errorf("feature settings = %s/%s/%d/%s",
 			settings.FeatureCurrentMaxAge, settings.FeatureBaselineMaxOffset, settings.FeatureMinimumQuality,
 			settings.FeatureCalculationDelay)
+	}
+	if settings.RankingTopN != 8 {
+		t.Errorf("RankingTopN = %d", settings.RankingTopN)
 	}
 }
 
@@ -110,6 +114,7 @@ func TestFromEnvRejectsUnsafeFeatureSettings(t *testing.T) {
 		{key: "FEATURE_BASELINE_MAX_OFFSET_SECONDS", value: "901"},
 		{key: "FEATURE_MINIMUM_QUALITY_SCORE", value: "101"},
 		{key: "FEATURE_CALCULATION_DELAY_SECONDS", value: "300"},
+		{key: "RANKING_TOP_N", value: "101"},
 	}
 	for _, test := range tests {
 		t.Run(test.key, func(t *testing.T) {

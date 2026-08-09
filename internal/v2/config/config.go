@@ -38,6 +38,7 @@ const (
 	defaultFeatureBaselineOffsetSecs = 300
 	defaultFeatureMinimumQuality     = 75
 	defaultFeatureDelaySeconds       = 5
+	defaultRankingTopN               = 5
 )
 
 // Settings contains only V2 infrastructure settings. V1 configuration remains
@@ -72,6 +73,7 @@ type Settings struct {
 	FeatureBaselineMaxOffset time.Duration
 	FeatureMinimumQuality    int16
 	FeatureCalculationDelay  time.Duration
+	RankingTopN              int
 }
 
 func FromEnv() (Settings, error) {
@@ -234,6 +236,13 @@ func FromEnv() (Settings, error) {
 	if featureDelaySeconds >= int(market.SnapshotInterval/time.Second) {
 		return Settings{}, fmt.Errorf("FEATURE_CALCULATION_DELAY_SECONDS 必须小于 %d", int(market.SnapshotInterval/time.Second))
 	}
+	rankingTopN, err := positiveInt("RANKING_TOP_N", defaultRankingTopN)
+	if err != nil {
+		return Settings{}, err
+	}
+	if rankingTopN > 100 {
+		return Settings{}, fmt.Errorf("RANKING_TOP_N 不能大于 100")
+	}
 
 	return Settings{
 		DatabaseURL:              databaseURL,
@@ -265,6 +274,7 @@ func FromEnv() (Settings, error) {
 		FeatureBaselineMaxOffset: time.Duration(featureBaselineOffsetSeconds) * time.Second,
 		FeatureMinimumQuality:    int16(featureMinimumQuality),
 		FeatureCalculationDelay:  time.Duration(featureDelaySeconds) * time.Second,
+		RankingTopN:              rankingTopN,
 	}, nil
 }
 

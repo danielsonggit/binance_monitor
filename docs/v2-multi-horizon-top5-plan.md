@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | ACTIVE |
-| 当前阶段 | MHR-5：分板块稳定排名 |
+| 当前阶段 | MHR-6：API 与 Telegram 报告 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-09 |
@@ -192,8 +192,8 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 | MHR-2 | 限速采集与 PostgreSQL 幂等写入 | COMPLETED | 全局限速、重试、批写、重复写安全；集成测试通过 | 1–1.5 天 |
 | MHR-3 | 历史回补与缺口恢复 | COMPLETED | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
 | MHR-4 | 多周期收益率与质量门禁 | COMPLETED | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
-| MHR-5 | 分板块稳定排名 | IN_PROGRESS | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
-| MHR-6 | API 与 Telegram 报告 | PENDING | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
+| MHR-5 | 分板块稳定排名 | COMPLETED | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
+| MHR-6 | API 与 Telegram 报告 | IN_PROGRESS | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
 | MHR-7 | 影子运行、部署与验收 | PENDING | jmk 连续运行 24–72 小时；延迟、覆盖率、缺口达标 | 1–3 天观察期 |
 
 整体开发预计约 7–10 个开发日，另加 24–72 小时影子运行。实际进度以验收证据为准，不以估时为准。
@@ -355,13 +355,48 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 每标的每 5 分钟保存一行四周期结果，而不是四行，以将长期存储量降低约 75%；排名使用 typed
   return 列，诊断使用 JSON 证据。
 
-## 15. 后续阶段验收摘要
+## 15. MHR-5 验收结果
 
-### MHR-5
+- [x] Crypto 与 TradFi、15m/1h/4h/24h 独立生成 8 个榜单组。
+- [x] 排序固定为收益率降序、24h 成交额降序、symbol 升序。
+- [x] 无效收益、零收益和负收益均不能进入涨幅榜，不足 Top N 时不补位。
+- [x] active、质量有效、正收益和最终排名数量分别保存，不混淆行情与数据缺失。
+- [x] 榜单保存算法版本、特征版本、板块分位数、价格、成交额和精确收益率。
+- [x] 同一时点重复生成保持榜单头、榜单项和审计幂等。
+- [x] `features` 和 worker 复用“回补 → 收益 → 排名”流水线。
+- [x] `rankings --as-of` 能从已落库收益重放指定五分钟时点，不访问 Binance。
+- [x] PostgreSQL 集成测试和 jmk 716 标的真实排名通过。
 
-- Crypto 与 TradFi 独立排序。
-- 同收益率排序稳定；不足 5 个标的时行为明确。
-- 无效数据不会因为默认零值进入榜单。
+验收证据：
+
+- 领域模型位于 `internal/domain/market/ranking.go`；计算器和服务位于 `internal/ranking`。
+- migration 4 新增按 `as_of` 分区的 `ranking_snapshots` 和 `ranking_snapshot_items`；migration 5
+  追加 `positive_count`，已执行 migration 不做 checksum 篡改。
+- 每个榜单头保存 `active_count`、`eligible_count`、`positive_count`、`ranked_count`，即使没有上涨标的
+  也会保存空榜单头，使 API 能区分“没有上涨”和“任务没有运行”。
+- jmk `2026-08-09 13:40 UTC` 因当前价陈旧产生 8 个空榜单，证明陈旧值不会漏过门禁。
+- jmk `2026-08-09 13:45 UTC` 共 716 个 active 标的、2,864 个周期；2,860 个质量有效、
+  1,526 个正收益，最终保存 8 组 40 项。Crypto 每周期 564/564 有效，TradFi 每周期
+  151/152 有效，`BITOUSDT` 四周期继续被零流动性门禁排除。
+- 榜单项中 `return_percent <= 0` 的行数为 0；Crypto 15m 前五为 BULLAUSDT、BICOUSDT、
+  THEUSDT、BTWUSDT、PARTIUSDT，与收益率降序核对一致。
+- 同一 `13:45 UTC` 使用 `rankings --as-of` 重放后仍为 8 个榜单头、40 个榜单项和 1 条
+  `RANKINGS_5M` 审计。
+- jmk 独立临时数据库执行 migration 1–5、联合输入、并列排序、空特征排除、保存和重复重放测试通过，
+  测试库已删除。
+- worker 短时 smoke 在启动时生成 8/40 榜单、连接 Binance WebSocket，并以
+  `phase2-multi-horizon-rankings` 的 `STOPPING` 心跳正常退出，没有留下常驻进程。
+
+关键决定：
+
+- “涨幅 Top N”严格继承 V1 语义，只保存 `return_percent > 0`；市场全部下跌时返回空榜，
+  不用跌得较少的标的凑数。
+- 分位数以全部质量有效标的为母体，而不是只以上涨标的为母体，因此保留板块相对强度意义。
+- 榜单头与榜单项分表保存；空榜单不丢失覆盖率，榜单项避免重复存储每个未上榜标的。
+- 重放榜单不重新访问 Binance，也不重算收益；其输入固定为指定 `as_of + feature_version` 的
+  `return_feature_snapshots`。
+
+## 16. 后续阶段验收摘要
 
 ### MHR-6
 
@@ -375,7 +410,7 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 连续观察期间无持续缺口，计算延迟和有效 universe 覆盖率达到配置阈值。
 - 人工抽样与 Binance K 线原始值复核至少 10 个 symbol × 4 个周期。
 
-## 16. 文档更新规则
+## 17. 文档更新规则
 
 每完成一个阶段，必须在同一个代码变更中更新本文档：
 
@@ -386,7 +421,7 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 5. 新发现的风险必须进入“主要阻碍与处理策略”，不能只留在聊天记录中。
 6. 需求发生变化时先更新本文档，再修改代码。
 
-## 17. 执行记录
+## 18. 执行记录
 
 ### 2026-08-09 — MHR-0 完成，MHR-1 开始
 
@@ -437,3 +472,16 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 同一时点重算保持 716 行和 1 条审计；worker 启动 smoke 后已正常停止。
 - 全仓库测试、vet、目标模块 race、jmk 临时 PostgreSQL 集成测试和 diff 检查通过。
 - 下一步按 Crypto/TradFi 和周期生成稳定 Top N，并确保任何无效指标均无法进入榜单。
+
+### 2026-08-09 — MHR-5 完成，MHR-6 开始
+
+- 建立版本化排名领域模型，固定 Crypto/TradFi × 四周期的 8 个榜单组。
+- 排序键固定为收益率降序、24h 成交额降序、symbol 升序，并用表驱动测试覆盖并列和输入乱序。
+- 严格排除无效、持平和负收益标的；不足 5 个上涨标的时保存实际数量，不进行负收益补位。
+- migration 4/5 新增榜单头、榜单项和正收益计数，保存 active/eligible/positive/ranked 四层口径。
+- `features` 和 worker 扩展为“回补 → 收益 → 排名”统一流水线；新增 `rankings --as-of` 历史重放。
+- jmk 真实 `13:45 UTC` 榜单为 2,864 active metrics、2,860 eligible、1,526 positive、8 组 40 项；
+  同时点重复重放仍为 8/40/1，且非正收益榜单项为 0。
+- 临时 PostgreSQL 集成测试通过并删除测试库；正式 migration 当前版本为 5。
+- worker 短时 smoke 后正常停止，没有常驻 V2 进程；V1、7891、Clash 和其他容器未修改。
+- 下一步实现排名/收益/质量只读 API，并生成 Telegram 多周期涨幅 Top 5 模板。
