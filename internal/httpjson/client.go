@@ -35,6 +35,24 @@ func New(timeout time.Duration, maxRetries int) *Client {
 	}
 }
 
+func NewWithProxy(timeout time.Duration, maxRetries int, proxyURL string) (*Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyURL != "" {
+		parsed, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("解析 HTTP proxy URL: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(parsed)
+	}
+	return &Client{
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+		maxRetries: maxRetries,
+	}, nil
+}
+
 func NewWithHTTPClient(client *http.Client, maxRetries int) *Client {
 	return &Client{httpClient: client, maxRetries: maxRetries}
 }

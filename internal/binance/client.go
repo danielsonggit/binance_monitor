@@ -23,6 +23,8 @@ type exchangeSymbol struct {
 	ContractType       string   `json:"contractType"`
 	UnderlyingType     string   `json:"underlyingType"`
 	UnderlyingSubTypes []string `json:"underlyingSubType"`
+	PricePrecision     int      `json:"pricePrecision"`
+	QuantityPrecision  int      `json:"quantityPrecision"`
 }
 
 type tickerResponse struct {
@@ -46,16 +48,9 @@ func (c *Client) FetchMarket(
 	ctx context.Context,
 	quoteAssets []string,
 ) (map[string]model.Contract, map[string]model.Ticker, error) {
-	var exchange exchangeInfoResponse
-	if err := c.http.JSON(
-		ctx,
-		http.MethodGet,
-		c.baseURL+"/fapi/v1/exchangeInfo",
-		nil,
-		nil,
-		&exchange,
-	); err != nil {
-		return nil, nil, fmt.Errorf("读取 Binance 合约信息: %w", err)
+	contracts, err := c.FetchContracts(ctx, quoteAssets)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var tickerRows []tickerResponse
@@ -69,7 +64,25 @@ func (c *Client) FetchMarket(
 	); err != nil {
 		return nil, nil, fmt.Errorf("读取 Binance 24 小时行情: %w", err)
 	}
-	return ParseContracts(exchange.Symbols, quoteAssets), ParseTickers(tickerRows), nil
+	return contracts, ParseTickers(tickerRows), nil
+}
+
+func (c *Client) FetchContracts(
+	ctx context.Context,
+	quoteAssets []string,
+) (map[string]model.Contract, error) {
+	var exchange exchangeInfoResponse
+	if err := c.http.JSON(
+		ctx,
+		http.MethodGet,
+		c.baseURL+"/fapi/v1/exchangeInfo",
+		nil,
+		nil,
+		&exchange,
+	); err != nil {
+		return nil, fmt.Errorf("读取 Binance 合约信息: %w", err)
+	}
+	return ParseContracts(exchange.Symbols, quoteAssets), nil
 }
 
 func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {
@@ -112,6 +125,8 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 			UnderlyingType:     strings.ToUpper(row.UnderlyingType),
 			UnderlyingSubTypes: append([]string(nil), row.UnderlyingSubTypes...),
 			Board:              board,
+			PricePrecision:     row.PricePrecision,
+			QuantityPrecision:  row.QuantityPrecision,
 		}
 	}
 	return result

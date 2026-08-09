@@ -19,8 +19,8 @@ func TestFetchMarketClassifiesAndFiltersContracts(t *testing.T) {
 			case "/fapi/v1/exchangeInfo":
 				payload = `{
 					"symbols": [
-						{"symbol":"KORUUSDT","baseAsset":"KORU","quoteAsset":"USDT","status":"TRADING","contractType":"TRADIFI_PERPETUAL","underlyingType":"EQUITY","underlyingSubType":["TECH"]},
-						{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","contractType":"PERPETUAL","underlyingType":"COIN","underlyingSubType":[]},
+						{"symbol":"KORUUSDT","baseAsset":"KORU","quoteAsset":"USDT","status":"TRADING","contractType":"TRADIFI_PERPETUAL","underlyingType":"EQUITY","underlyingSubType":["TECH"],"pricePrecision":2,"quantityPrecision":1},
+						{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","contractType":"PERPETUAL","underlyingType":"COIN","underlyingSubType":[],"pricePrecision":1,"quantityPrecision":3},
 						{"symbol":"ETHUSDC","baseAsset":"ETH","quoteAsset":"USDC","status":"TRADING","contractType":"PERPETUAL","underlyingType":"COIN","underlyingSubType":[]},
 						{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","status":"SETTLING","contractType":"PERPETUAL","underlyingType":"COIN","underlyingSubType":[]},
 						{"symbol":"BTCUSD_260925","baseAsset":"BTC","quoteAsset":"USD","status":"TRADING","contractType":"CURRENT_QUARTER","underlyingType":"COIN","underlyingSubType":[]}
@@ -60,11 +60,36 @@ func TestFetchMarketClassifiesAndFiltersContracts(t *testing.T) {
 	if contracts["BTCUSDT"].Board != model.BoardCrypto {
 		t.Errorf("BTC board = %s", contracts["BTCUSDT"].Board)
 	}
+	if contracts["BTCUSDT"].PricePrecision != 1 || contracts["BTCUSDT"].QuantityPrecision != 3 {
+		t.Errorf("BTC precision = %d/%d", contracts["BTCUSDT"].PricePrecision, contracts["BTCUSDT"].QuantityPrecision)
+	}
 	if _, exists := contracts["ETHUSDC"]; exists {
 		t.Error("USDC contract should be filtered")
 	}
 	if len(tickers) != 3 {
 		t.Errorf("len(tickers) = %d, want 3", len(tickers))
+	}
+}
+
+func TestFetchActiveInstrumentsReturnsStableDomainModels(t *testing.T) {
+	clientHTTP := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		payload := `{"symbols":[
+			{"symbol":"KORUUSDT","baseAsset":"KORU","quoteAsset":"USDT","status":"TRADING","contractType":"TRADIFI_PERPETUAL","pricePrecision":2,"quantityPrecision":1},
+			{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","contractType":"PERPETUAL","pricePrecision":1,"quantityPrecision":3}
+		]}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	client := New("https://example.test", httpjson.NewWithHTTPClient(clientHTTP, 1))
+	instruments, err := client.FetchActiveInstruments(context.Background(), []string{"USDT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instruments) != 2 || instruments[0].Symbol != "BTCUSDT" || instruments[1].Sector != "TRADFI" {
+		t.Fatalf("instruments = %#v", instruments)
 	}
 }
 

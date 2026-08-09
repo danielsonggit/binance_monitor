@@ -15,6 +15,8 @@ type Contract struct {
 	UnderlyingType     string
 	UnderlyingSubTypes []string
 	Board              Board
+	PricePrecision     int
+	QuantityPrecision  int
 }
 
 type Ticker struct {

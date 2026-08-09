@@ -1,9 +1,6 @@
 package main
 
-import (
-	"flag"
-	"testing"
-)
+import "testing"
 
 func TestHelpIsNotAnApplicationError(t *testing.T) {
 	if err := run([]string{"--help"}); err != nil {
@@ -11,20 +8,26 @@ func TestHelpIsNotAnApplicationError(t *testing.T) {
 	}
 }
 
-func TestMutuallyExclusiveModes(t *testing.T) {
+func TestMutuallyExclusiveV1Modes(t *testing.T) {
 	if err := run([]string{"--once", "--daemon"}); err == nil {
 		t.Fatal("expected mutually exclusive mode error")
 	}
 }
 
-func TestParseFlagsRejectsPositionals(t *testing.T) {
-	if _, err := parseFlags([]string{"unexpected"}); err == nil {
-		t.Fatal("expected positional argument error")
+func TestExplicitV1PrefixUsesLegacyFlags(t *testing.T) {
+	if err := run([]string{"v1", "--help"}); err != nil {
+		t.Fatalf("run(v1 --help) error = %v", err)
 	}
 }
 
-func TestParseFlagsHelp(t *testing.T) {
-	if _, err := parseFlags([]string{"--help"}); err != flag.ErrHelp {
-		t.Fatalf("error = %v, want flag.ErrHelp", err)
+func TestV2HelpDoesNotRequireConfiguration(t *testing.T) {
+	if err := run([]string{"worker", "--help"}); err != nil {
+		t.Fatalf("run(worker --help) error = %v", err)
+	}
+}
+
+func TestUnknownCommandFails(t *testing.T) {
+	if err := run([]string{"unexpected"}); err == nil {
+		t.Fatal("expected unknown command error")
 	}
 }

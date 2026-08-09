@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-binance_radar}
+      POSTGRES_USER: ${POSTGRES_USER:-radar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.v2}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-v2-data:/var/lib/postgresql/data
+    networks:
+      - radar-v2
+
+  migrate:
+    build: .
+    command: ["binance-monitor", "migrate"]
+    env_file:
+      - ${V2_ENV_FILE:-.env.v2}
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-binance_radar}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - radar-v2
+    restart: "no"
+
+  worker:
+    build: .
+    command: ["binance-monitor", "worker"]
+    restart: unless-stopped
+    env_file:
+      - ${V2_ENV_FILE:-.env.v2}
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-binance_radar}?sslmode=disable"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - radar-v2
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build: .
+    command: ["binance-monitor", "api"]
+    restart: unless-stopped
+    env_file:
+      - ${V2_ENV_FILE:-.env.v2}
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-binance_radar}?sslmode=disable"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${V2_WEB_BIND_ADDRESS:-127.0.0.1}:${V2_WEB_PORT:-8080}:8080"
+    networks:
+      - radar-v2
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  radar-v2:
+
+volumes:
+  postgres-v2-data:
