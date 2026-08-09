@@ -93,6 +93,37 @@ func TestFetchActiveInstrumentsReturnsStableDomainModels(t *testing.T) {
 	}
 }
 
+func TestFetchMarketUsesOneSharedLimiterForEveryRESTRequest(t *testing.T) {
+	clientHTTP := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		payload := `{"symbols":[]}`
+		if request.URL.Path == "/fapi/v1/ticker/24hr" {
+			payload = `[]`
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	limiter := &recordingWeightLimiter{}
+	client, err := NewWithWeightLimiter(
+		"https://example.test",
+		httpjson.NewWithHTTPClient(clientHTTP, 1),
+		limiter,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.FetchMarket(context.Background(), []string{"USDT"}); err != nil {
+		t.Fatal(err)
+	}
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if len(limiter.weights) != 2 || limiter.weights[0] != 1 || limiter.weights[1] != ticker24hAllSymbolsWeight {
+		t.Fatalf("weights = %#v", limiter.weights)
+	}
+}
+
 func TestParseTickersIgnoresInvalidRows(t *testing.T) {
 	rows := []tickerResponse{
 		{Symbol: "GOODUSDT", LastPrice: "1.5", PriceChangePercent: "3.2"},

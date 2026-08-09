@@ -14,6 +14,7 @@ import (
 	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/marketdata"
+	"binance-monitor/internal/ratelimit"
 	"binance-monitor/internal/storage/postgres"
 	"binance-monitor/internal/universe"
 	"binance-monitor/internal/v2/api"
@@ -146,7 +147,21 @@ func runWorker(
 	if err != nil {
 		return err
 	}
-	binanceClient := binance.New(settings.BinanceBaseURL, httpClient)
+	requestLimiter, err := ratelimit.NewWeightLimiter(
+		settings.RequestWeightPerMinute,
+		settings.RequestWeightBurst,
+	)
+	if err != nil {
+		return err
+	}
+	binanceClient, err := binance.NewWithWeightLimiter(
+		settings.BinanceBaseURL,
+		httpClient,
+		requestLimiter,
+	)
+	if err != nil {
+		return err
+	}
 	universeService := universe.New(
 		binanceClient,
 		postgres.NewUniverseRepository(resources.Pool),

@@ -1,6 +1,6 @@
 # Binance Market Radar V2：执行计划
 
-当前状态（2026-08-02）：Phase 0 已完成；Phase 1 已完成模块化 CLI、PostgreSQL migration、Binance 合约目录、官方 WebSocket、分钟窗口、5 分钟快照、批量落库与停机缺口登记，并已通过 jmk 7890 实网验证；下一批进入 15 分钟 K 线采集和精确历史回补。
+当前状态（2026-08-09）：Phase 0 已完成；Phase 1 已完成模块化 CLI、PostgreSQL migration、Binance 合约目录、官方 WebSocket、分钟窗口、5 分钟快照、15 分钟 K 线 REST、共享权重限速与幂等批写，并已通过真实 PostgreSQL 集成测试；下一批进入精确历史回补、断点续跑和缺口审计。
 
 ## 1. 交付策略
 

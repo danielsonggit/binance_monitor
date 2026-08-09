@@ -100,6 +100,52 @@ func TestKlineIsClosed(t *testing.T) {
 	}
 }
 
+func TestKlineQueryNormalizeAndValidate(t *testing.T) {
+	query := KlineQuery{
+		Symbol:    " btcusdt ",
+		Interval:  KlineInterval15m,
+		StartTime: time.UnixMilli(1499040000000),
+		EndTime:   time.UnixMilli(1499040000000).Add(time.Hour),
+		Limit:     500,
+	}.Normalized()
+	if query.Symbol != "BTCUSDT" || query.StartTime.Location() != time.UTC || query.EndTime.Location() != time.UTC {
+		t.Fatalf("normalized query = %#v", query)
+	}
+	if err := query.Validate(); err != nil {
+		t.Fatalf("KlineQuery.Validate() error = %v", err)
+	}
+
+	query.Limit = KlineMaxRequestLimit + 1
+	if err := query.Validate(); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("KlineQuery.Validate() error = %v", err)
+	}
+}
+
+func TestKlineBatchValidateRejectsIncompleteAndDuplicateItems(t *testing.T) {
+	kline := testKline()
+	receivedAt := kline.CloseTime.Add(time.Millisecond)
+	valid := KlineBatch{
+		Items:      []Kline{kline},
+		Source:     KlineSourceBinanceFutures,
+		ReceivedAt: receivedAt,
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("KlineBatch.Validate() error = %v", err)
+	}
+
+	incomplete := valid
+	incomplete.ReceivedAt = kline.CloseTime.Add(-time.Millisecond)
+	if err := incomplete.Validate(); err == nil || !strings.Contains(err.Error(), "尚未完成") {
+		t.Fatalf("incomplete batch error = %v", err)
+	}
+
+	duplicate := valid
+	duplicate.Items = []Kline{kline, kline}
+	if err := duplicate.Validate(); err == nil || !strings.Contains(err.Error(), "重复") {
+		t.Fatalf("duplicate batch error = %v", err)
+	}
+}
+
 func testKline() Kline {
 	openTime := time.UnixMilli(1499040000000).UTC()
 	return Kline{

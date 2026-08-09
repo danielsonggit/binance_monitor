@@ -79,6 +79,15 @@
     - 价格和成交量使用 `shopspring/decimal`，并校验时间边界与 OHLC；
     - 非 2xx 错误保留 HTTP 状态码和响应摘要；
     - 全仓库测试、vet 与新增模块 race 测试通过。
+26. 已完成 K 线限速采集与 PostgreSQL 幂等写入：
+    - 使用 `golang.org/x/time/rate` 建立 V2 进程级共享请求权重预算；
+    - 按 K 线 `limit` 阶梯计算 1/2/5/10 权重，默认 limit 按 500 条处理；
+    - 采集器通过领域 source/repository 接口隔离 Binance 与 pgx 类型；
+    - 只写入已经完成的 15 分钟 K 线，拒绝错标的、重复和畸形来源数据；
+    - pgx Batch 事务按 `(instrument_id, open_time)` upsert，重复回放不产生重复行；
+    - 网络错误、418、429、5xx 有限重试，永久参数错误不重试，退避支持取消；
+    - 已用隔离 PostgreSQL 17 实例完成重复写、更新、整批拒绝集成测试；
+    - 全仓库普通测试、vet 与全仓库 race 测试通过。
 
 `backfill` 当前只有命令入口，会明确返回“下一批实现”，不会假装已经采集历史数据。
 
@@ -144,6 +153,7 @@ make v2-down
 | PostgreSQL | pgx/v5 | 只存在于 `internal/storage/postgres` |
 | Binance WebSocket | Binance 官方 Go SDK v1.14.0 | 只存在于 `internal/binancews` |
 | 金融小数 | shopspring/decimal v1.4.0 | 行情领域值，禁止先转 float64 再恢复 |
+| REST 权重限速 | golang.org/x/time/rate v0.15.0 | 只存在于 `internal/ratelimit`，通过内部接口注入 Binance 客户端 |
 
 Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接使用；它们本身就是稳定的通用基础能力。交易信号、生命周期和数据质量规则属于本项目核心领域，不能交给通用库黑盒处理。
 
@@ -152,7 +162,7 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 实现共享权重限速、已完成 K 线过滤与 PostgreSQL 幂等批写；
+1. 实现至少 30 小时历史回补、按最大已存 open time 断点续跑和缺口审计；
 2. 使用已完成 K 线补充重启后的精确历史，miniTicker 缺口只作质量记录，不伪造回补；
 3. 实现 15m/1h/4h/24h 收益率和数据完整度门禁；
 4. 增加采集完整率和最近缺口的只读健康 API。

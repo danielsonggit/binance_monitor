@@ -38,10 +38,32 @@ type tickerResponse struct {
 type Client struct {
 	baseURL string
 	http    *httpjson.Client
+	limiter RequestWeightLimiter
 }
+
+type RequestWeightLimiter interface {
+	Wait(context.Context, int) error
+}
+
+const ticker24hAllSymbolsWeight = 40
 
 func New(baseURL string, httpClient *httpjson.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: httpClient}
+}
+
+func NewWithWeightLimiter(
+	baseURL string,
+	httpClient *httpjson.Client,
+	limiter RequestWeightLimiter,
+) (*Client, error) {
+	if limiter == nil {
+		return nil, fmt.Errorf("Binance 请求权重 limiter 不能为空")
+	}
+	return &Client{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		http:    httpClient,
+		limiter: limiter,
+	}, nil
 }
 
 func (c *Client) FetchMarket(
@@ -51,6 +73,9 @@ func (c *Client) FetchMarket(
 	contracts, err := c.FetchContracts(ctx, quoteAssets)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := c.waitRequestWeight(ctx, ticker24hAllSymbolsWeight); err != nil {
+		return nil, nil, fmt.Errorf("等待 Binance 全市场 24 小时 ticker 请求权重: %w", err)
 	}
 
 	var tickerRows []tickerResponse
@@ -71,6 +96,9 @@ func (c *Client) FetchContracts(
 	ctx context.Context,
 	quoteAssets []string,
 ) (map[string]model.Contract, error) {
+	if err := c.waitRequestWeight(ctx, 1); err != nil {
+		return nil, fmt.Errorf("等待 Binance exchangeInfo 请求权重: %w", err)
+	}
 	var exchange exchangeInfoResponse
 	if err := c.http.JSON(
 		ctx,
@@ -83,6 +111,16 @@ func (c *Client) FetchContracts(
 		return nil, fmt.Errorf("读取 Binance 合约信息: %w", err)
 	}
 	return ParseContracts(exchange.Symbols, quoteAssets), nil
+}
+
+func (c *Client) waitRequestWeight(ctx context.Context, weight int) error {
+	if c == nil {
+		return fmt.Errorf("Binance client 不能为空")
+	}
+	if c.limiter == nil {
+		return nil
+	}
+	return c.limiter.Wait(ctx, weight)
 }
 
 func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {

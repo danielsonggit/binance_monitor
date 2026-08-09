@@ -17,6 +17,10 @@ const (
 	defaultHeartbeatSeconds = 15
 	defaultHTTPTimeout      = 20
 	defaultHTTPMaxRetries   = 3
+	defaultWeightPerMinute  = 1800
+	defaultWeightBurst      = 50
+	binanceWeightLimit      = 2400
+	maxKlineRequestWeight   = 10
 	defaultUniverseMinutes  = 60
 	defaultUniverseRatio    = 80
 	defaultMissingConfirms  = 2
@@ -30,27 +34,29 @@ const (
 // Settings contains only V2 infrastructure settings. V1 configuration remains
 // in internal/config so the two runtimes can evolve independently.
 type Settings struct {
-	DatabaseURL      string
-	DatabaseMaxConns int32
-	QuoteAssets      []string
-	TimezoneName     string
-	Location         *time.Location
-	ProxyURL         string
-	WebListenAddr    string
-	ShutdownTimeout  time.Duration
-	HeartbeatEvery   time.Duration
-	BinanceBaseURL   string
-	HTTPTimeout      time.Duration
-	HTTPMaxRetries   int
-	UniverseEvery    time.Duration
-	UniverseMinRatio int
-	MissingConfirms  int
-	BinanceWSBaseURL string
-	WSStaleAfter     time.Duration
-	WSRotateAfter    time.Duration
-	WSReconnectWait  time.Duration
-	MarketWindow     time.Duration
-	SnapshotMaxAge   time.Duration
+	DatabaseURL            string
+	DatabaseMaxConns       int32
+	QuoteAssets            []string
+	TimezoneName           string
+	Location               *time.Location
+	ProxyURL               string
+	WebListenAddr          string
+	ShutdownTimeout        time.Duration
+	HeartbeatEvery         time.Duration
+	BinanceBaseURL         string
+	HTTPTimeout            time.Duration
+	HTTPMaxRetries         int
+	RequestWeightPerMinute int
+	RequestWeightBurst     int
+	UniverseEvery          time.Duration
+	UniverseMinRatio       int
+	MissingConfirms        int
+	BinanceWSBaseURL       string
+	WSStaleAfter           time.Duration
+	WSRotateAfter          time.Duration
+	WSReconnectWait        time.Duration
+	MarketWindow           time.Duration
+	SnapshotMaxAge         time.Duration
 }
 
 func FromEnv() (Settings, error) {
@@ -104,6 +110,29 @@ func FromEnv() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	requestWeightPerMinute, err := positiveInt("BINANCE_REQUEST_WEIGHT_PER_MINUTE", defaultWeightPerMinute)
+	if err != nil {
+		return Settings{}, err
+	}
+	if requestWeightPerMinute > binanceWeightLimit {
+		return Settings{}, fmt.Errorf(
+			"BINANCE_REQUEST_WEIGHT_PER_MINUTE 不能大于 Binance 限额 %d",
+			binanceWeightLimit,
+		)
+	}
+	requestWeightBurst, err := positiveInt("BINANCE_REQUEST_WEIGHT_BURST", defaultWeightBurst)
+	if err != nil {
+		return Settings{}, err
+	}
+	if requestWeightBurst < maxKlineRequestWeight {
+		return Settings{}, fmt.Errorf(
+			"BINANCE_REQUEST_WEIGHT_BURST 不能小于单次 K 线最大权重 %d",
+			maxKlineRequestWeight,
+		)
+	}
+	if requestWeightBurst > requestWeightPerMinute {
+		return Settings{}, fmt.Errorf("BINANCE_REQUEST_WEIGHT_BURST 不能大于每分钟权重预算")
+	}
 	universeMinutes, err := positiveInt("UNIVERSE_SYNC_INTERVAL_MINUTES", defaultUniverseMinutes)
 	if err != nil {
 		return Settings{}, err
@@ -150,27 +179,29 @@ func FromEnv() (Settings, error) {
 	}
 
 	return Settings{
-		DatabaseURL:      databaseURL,
-		DatabaseMaxConns: int32(maxConns),
-		QuoteAssets:      quoteAssets,
-		TimezoneName:     timezoneName,
-		Location:         location,
-		ProxyURL:         proxyURL,
-		WebListenAddr:    webListenAddr,
-		ShutdownTimeout:  time.Duration(shutdownSeconds) * time.Second,
-		HeartbeatEvery:   time.Duration(heartbeatSeconds) * time.Second,
-		BinanceBaseURL:   strings.TrimRight(envOr("BINANCE_FAPI_BASE_URL", "https://fapi.binance.com"), "/"),
-		HTTPTimeout:      time.Duration(httpTimeoutSeconds) * time.Second,
-		HTTPMaxRetries:   httpMaxRetries,
-		UniverseEvery:    time.Duration(universeMinutes) * time.Minute,
-		UniverseMinRatio: universeRatio,
-		MissingConfirms:  missingConfirms,
-		BinanceWSBaseURL: strings.TrimRight(envOr("BINANCE_WS_BASE_URL", "wss://fstream.binance.com"), "/"),
-		WSStaleAfter:     time.Duration(wsStaleSeconds) * time.Second,
-		WSRotateAfter:    time.Duration(wsRotateMinutes) * time.Minute,
-		WSReconnectWait:  time.Duration(wsReconnectSeconds) * time.Second,
-		MarketWindow:     time.Duration(windowMinutes) * time.Minute,
-		SnapshotMaxAge:   time.Duration(snapshotMaxAgeSeconds) * time.Second,
+		DatabaseURL:            databaseURL,
+		DatabaseMaxConns:       int32(maxConns),
+		QuoteAssets:            quoteAssets,
+		TimezoneName:           timezoneName,
+		Location:               location,
+		ProxyURL:               proxyURL,
+		WebListenAddr:          webListenAddr,
+		ShutdownTimeout:        time.Duration(shutdownSeconds) * time.Second,
+		HeartbeatEvery:         time.Duration(heartbeatSeconds) * time.Second,
+		BinanceBaseURL:         strings.TrimRight(envOr("BINANCE_FAPI_BASE_URL", "https://fapi.binance.com"), "/"),
+		HTTPTimeout:            time.Duration(httpTimeoutSeconds) * time.Second,
+		HTTPMaxRetries:         httpMaxRetries,
+		RequestWeightPerMinute: requestWeightPerMinute,
+		RequestWeightBurst:     requestWeightBurst,
+		UniverseEvery:          time.Duration(universeMinutes) * time.Minute,
+		UniverseMinRatio:       universeRatio,
+		MissingConfirms:        missingConfirms,
+		BinanceWSBaseURL:       strings.TrimRight(envOr("BINANCE_WS_BASE_URL", "wss://fstream.binance.com"), "/"),
+		WSStaleAfter:           time.Duration(wsStaleSeconds) * time.Second,
+		WSRotateAfter:          time.Duration(wsRotateMinutes) * time.Minute,
+		WSReconnectWait:        time.Duration(wsReconnectSeconds) * time.Second,
+		MarketWindow:           time.Duration(windowMinutes) * time.Minute,
+		SnapshotMaxAge:         time.Duration(snapshotMaxAgeSeconds) * time.Second,
 	}, nil
 }
 

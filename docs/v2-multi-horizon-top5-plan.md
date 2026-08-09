@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | ACTIVE |
-| 当前阶段 | MHR-2：限速采集与 PostgreSQL 幂等写入 |
+| 当前阶段 | MHR-3：历史回补与缺口恢复 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-09 |
@@ -188,8 +188,8 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | MHR-0 | 需求基线与活文档 | COMPLETED | 新文档建立、进入 docs 索引、范围和口径明确 | 0.5 天 |
 | MHR-1 | 15m K 线领域模型与 Binance REST 客户端 | COMPLETED | 参数校验、响应解析、错误处理和单元测试全部通过 | 0.5–1 天 |
-| MHR-2 | 限速采集与 PostgreSQL 幂等写入 | IN_PROGRESS | 全局限速、重试、批写、重复写安全；集成测试通过 | 1–1.5 天 |
-| MHR-3 | 历史回补与缺口恢复 | PENDING | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
+| MHR-2 | 限速采集与 PostgreSQL 幂等写入 | COMPLETED | 全局限速、重试、批写、重复写安全；集成测试通过 | 1–1.5 天 |
+| MHR-3 | 历史回补与缺口恢复 | IN_PROGRESS | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
 | MHR-4 | 多周期收益率与质量门禁 | PENDING | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
 | MHR-5 | 分板块稳定排名 | PENDING | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
 | MHR-6 | API 与 Telegram 报告 | PENDING | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
@@ -225,19 +225,44 @@ flowchart LR
 - 保留 Binance 的毫秒级闭盘时间语义，严格验证 `open_time + 15m - 1ms`。
 - REST 适配器返回所有合法 K 线；是否已完成由 `Kline.IsClosed` 与 MHR-2 采集器负责，避免在底层客户端隐式丢数据。
 
-## 12. 当前阶段：MHR-2 验收清单
+## 12. MHR-2 验收结果
 
-- [ ] 定义 K 线 source/repository 接口，采集器不依赖 Binance 或 pgx 具体类型。
-- [ ] 使用全进程共享限速器，不能为每个 symbol 创建独立限速器规避权重限制。
-- [ ] 根据 K 线请求 limit 计算请求权重并等待令牌。
-- [ ] 仅持久化已完成的 15m K 线；未完成 K 线不得进入事实表。
-- [ ] PostgreSQL 使用批量事务和 `(instrument_id, open_time)` 幂等写入。
-- [ ] 网络超时、429、418 和 5xx 使用有上限的分类重试；永久参数错误不重试。
-- [ ] 单元测试覆盖限速、过滤、取消、错误和幂等编排。
-- [ ] PostgreSQL 集成测试验证重复采集不会产生重复行。
-- [ ] `go test ./...`、`go vet ./...` 和新增模块 race 测试通过。
+- [x] 定义 K 线 source/repository 接口，采集器不依赖 Binance 或 pgx 具体类型。
+- [x] 使用全进程共享限速器，不能为每个 symbol 创建独立限速器规避权重限制。
+- [x] 根据 K 线请求 limit 计算请求权重并等待令牌。
+- [x] 仅持久化已完成的 15m K 线；未完成 K 线不得进入事实表。
+- [x] PostgreSQL 使用批量事务和 `(instrument_id, open_time)` 幂等写入。
+- [x] 网络超时、429、418 和 5xx 使用有上限的分类重试；永久参数错误不重试。
+- [x] 单元测试覆盖限速、过滤、取消、错误和幂等编排。
+- [x] PostgreSQL 集成测试验证重复采集不会产生重复行。
+- [x] `go test ./...`、`go vet ./...` 和新增模块 race 测试通过。
 
-验收证据：待 MHR-2 完成后回写。
+验收证据：
+
+- 领域查询和批次契约：`internal/domain/market/kline.go`。
+- Binance limit 权重映射与共享 limiter 接入：`internal/binance/klines.go`、
+  `internal/binance/client.go`、`internal/ratelimit/weight.go`。
+- 完成 K 线过滤与依赖反转采集编排：`internal/collector/kline.go`。
+- PostgreSQL 批事务和 upsert：`internal/storage/postgres/kline_repository.go`。
+- 分类重试及 `Retry-After`：`internal/httpjson/client.go`。
+- V2 默认使用每分钟 1800 权重、burst 50；配置入口为
+  `BINANCE_REQUEST_WEIGHT_PER_MINUTE` 与 `BINANCE_REQUEST_WEIGHT_BURST`。
+- `POSTGRES_TEST_URL=<隔离测试库> go test -count=1 ./...`：通过；真实执行 universe、
+  snapshot 和 K 线 PostgreSQL 集成测试，重复写入后 `klines_15m` 仍为 2 行，修正值被更新。
+- `go vet ./...`：通过。
+- `go test -race -count=1 ./...`：通过。
+- `git diff --check`：通过。
+
+关键决定：
+
+- MHR-2 提供“单 symbol、单页”的可复用采集原语；全市场分页、并发预算、断点和缺口恢复由
+  MHR-3 编排，避免将调度策略写死在 Binance 适配器中。
+- `limit=0` 按 Binance 默认 500 条计算权重 5；显式 limit 按官方阶梯计算 1/2/5/10。
+- 418、429 和 5xx 才进行状态码重试；400 等永久请求错误立即返回。网络错误有限重试，
+  所有退避都响应 context 取消，服务端 `Retry-After` 最多等待 30 秒。
+- repository 在事务开始前再次拒绝未完成或重复 K 线；合约映射缺失时整批失败，不允许部分落库。
+- 初次历史回补使用当前 active instrument 记录。`valid_from` 是本系统首次观察时间，不是交易所
+  上市时间，因此不能据此错误拒绝更早的合法历史 K 线。
 
 ## 13. 后续阶段验收摘要
 
@@ -299,3 +324,14 @@ flowchart LR
 - 定向测试、全仓库测试、vet、race、格式和 diff 检查全部通过。
 - 未调用生产 Binance、未连接 jmk、未修改 V1 运行状态；MHR-1 验收不依赖外部环境。
 - 下一步实现共享权重限速、已完成 K 线过滤与 PostgreSQL 幂等批写。
+
+### 2026-08-09 — MHR-2 完成，MHR-3 开始
+
+- 将 K 线查询和写入契约固定在领域层；Binance 和 PostgreSQL 只作为接口适配器。
+- 引入 `golang.org/x/time/rate` 进程级共享权重 limiter，并按 K 线 limit 计算实际请求权重。
+- 采集器仅持久化 `close_time <= now` 的完成 K 线，拒绝来源错标的、重复和畸形数据。
+- PostgreSQL 使用 pgx Batch 事务和 `(instrument_id, open_time)` upsert，重复回放更新但不增行。
+- HTTP 客户端完成网络错误、418、429、5xx 分类重试，支持 `Retry-After` 和 context 取消。
+- 使用独立临时 PostgreSQL 17 容器完成真实集成验收；测试后容器已停止并自动删除。
+- 全仓库普通测试、vet、全仓库 race 和 diff 检查全部通过；未连接 jmk，未修改 V1。
+- 下一步实现至少 30 小时历史回补、按最大已存 open time 断点续跑和缺口审计。

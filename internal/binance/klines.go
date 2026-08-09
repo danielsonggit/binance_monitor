@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"binance-monitor/internal/domain/market"
@@ -15,47 +14,24 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const maxKlineLimit = 1500
-
-type KlineRequest struct {
-	Symbol    string
-	Interval  market.KlineInterval
-	StartTime time.Time
-	EndTime   time.Time
-	Limit     int
-}
-
-func (r KlineRequest) Validate() error {
-	if strings.TrimSpace(r.Symbol) == "" {
-		return fmt.Errorf("K 线请求 symbol 不能为空")
-	}
-	if _, err := r.Interval.Duration(); err != nil {
-		return err
-	}
-	if !r.StartTime.IsZero() && r.StartTime.UnixMilli() < 0 {
-		return fmt.Errorf("K 线请求 start time 不能早于 Unix epoch")
-	}
-	if !r.EndTime.IsZero() && r.EndTime.UnixMilli() < 0 {
-		return fmt.Errorf("K 线请求 end time 不能早于 Unix epoch")
-	}
-	if !r.StartTime.IsZero() && !r.EndTime.IsZero() && !r.StartTime.Before(r.EndTime) {
-		return fmt.Errorf("K 线请求 start time 必须早于 end time")
-	}
-	if r.Limit < 0 || r.Limit > maxKlineLimit {
-		return fmt.Errorf("K 线请求 limit 必须为 0 或 1 到 %d", maxKlineLimit)
-	}
-	return nil
-}
+type KlineRequest = market.KlineQuery
 
 type klineRow []json.RawMessage
 
 func (c *Client) FetchKlines(ctx context.Context, request KlineRequest) ([]market.Kline, error) {
-	request.Symbol = strings.ToUpper(strings.TrimSpace(request.Symbol))
+	request = request.Normalized()
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
 	if c == nil || c.http == nil {
 		return nil, fmt.Errorf("Binance HTTP client 不能为空")
+	}
+	weight, err := KlineRequestWeight(request.Limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.waitRequestWeight(ctx, weight); err != nil {
+		return nil, fmt.Errorf("等待 Binance K 线请求权重: %w", err)
 	}
 
 	query := url.Values{
@@ -93,6 +69,25 @@ func (c *Client) FetchKlines(ctx context.Context, request KlineRequest) ([]marke
 		klines = append(klines, kline)
 	}
 	return klines, nil
+}
+
+func KlineRequestWeight(limit int) (int, error) {
+	if limit < 0 || limit > market.KlineMaxRequestLimit {
+		return 0, fmt.Errorf("K 线请求 limit 必须为 0 或 1 到 %d", market.KlineMaxRequestLimit)
+	}
+	if limit == 0 {
+		limit = 500
+	}
+	switch {
+	case limit < 100:
+		return 1, nil
+	case limit < 500:
+		return 2, nil
+	case limit <= 1000:
+		return 5, nil
+	default:
+		return 10, nil
+	}
 }
 
 func parseKlineRow(

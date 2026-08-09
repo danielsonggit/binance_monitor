@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,19 @@ import (
 	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/httpjson"
 )
+
+type recordingWeightLimiter struct {
+	mu      sync.Mutex
+	weights []int
+	err     error
+}
+
+func (r *recordingWeightLimiter) Wait(_ context.Context, weight int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.weights = append(r.weights, weight)
+	return r.err
+}
 
 func TestFetchKlinesBuildsQueryAndParsesDomainModel(t *testing.T) {
 	const openTimeMS int64 = 1499040000000
@@ -252,6 +266,84 @@ func TestFetchKlinesPreservesHTTPStatusError(t *testing.T) {
 	}
 	if statusErr.Code != http.StatusBadRequest || !strings.Contains(statusErr.Body, "Invalid symbol") {
 		t.Fatalf("status error = %#v", statusErr)
+	}
+}
+
+func TestKlineRequestWeightUsesBinanceLimitTiers(t *testing.T) {
+	tests := []struct {
+		limit int
+		want  int
+	}{
+		{limit: 0, want: 5},
+		{limit: 1, want: 1},
+		{limit: 99, want: 1},
+		{limit: 100, want: 2},
+		{limit: 499, want: 2},
+		{limit: 500, want: 5},
+		{limit: 1000, want: 5},
+		{limit: 1001, want: 10},
+		{limit: 1500, want: 10},
+	}
+	for _, test := range tests {
+		weight, err := KlineRequestWeight(test.limit)
+		if err != nil || weight != test.want {
+			t.Errorf("KlineRequestWeight(%d) = %d, %v; want %d", test.limit, weight, err, test.want)
+		}
+	}
+	if _, err := KlineRequestWeight(1501); err == nil {
+		t.Fatal("KlineRequestWeight(1501) error = nil")
+	}
+}
+
+func TestFetchKlinesWaitsForSharedRequestWeightBeforeNetwork(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	limiter := &recordingWeightLimiter{}
+	client, err := NewWithWeightLimiter(server.URL, httpjson.NewWithHTTPClient(server.Client(), 1), limiter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.FetchKlines(context.Background(), KlineRequest{
+		Symbol:   "BTCUSDT",
+		Interval: market.KlineInterval15m,
+		Limit:    1500,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if calls.Load() != 1 || len(limiter.weights) != 1 || limiter.weights[0] != 10 {
+		t.Fatalf("calls=%d weights=%v", calls.Load(), limiter.weights)
+	}
+}
+
+func TestFetchKlinesDoesNotCallNetworkWhenLimiterFails(t *testing.T) {
+	var calls atomic.Int64
+	httpClient := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, errors.New("unexpected network call")
+	})}
+	limiter := &recordingWeightLimiter{err: context.Canceled}
+	client, err := NewWithWeightLimiter("https://example.test", httpjson.NewWithHTTPClient(httpClient, 1), limiter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.FetchKlines(context.Background(), KlineRequest{
+		Symbol:   "BTCUSDT",
+		Interval: market.KlineInterval15m,
+		Limit:    100,
+	})
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("FetchKlines() error = %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("network calls = %d", calls.Load())
 	}
 }
 

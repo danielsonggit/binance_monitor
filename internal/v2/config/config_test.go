@@ -17,6 +17,8 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("WORKER_HEARTBEAT_SECONDS", "5")
 	t.Setenv("HTTP_TIMEOUT_SECONDS", "9")
 	t.Setenv("HTTP_MAX_RETRIES", "4")
+	t.Setenv("BINANCE_REQUEST_WEIGHT_PER_MINUTE", "1600")
+	t.Setenv("BINANCE_REQUEST_WEIGHT_BURST", "40")
 	t.Setenv("UNIVERSE_SYNC_INTERVAL_MINUTES", "30")
 	t.Setenv("UNIVERSE_MINIMUM_RATIO_PERCENT", "85")
 	t.Setenv("UNIVERSE_MISSING_CONFIRMATIONS", "3")
@@ -42,6 +44,9 @@ func TestFromEnv(t *testing.T) {
 	}
 	if settings.HTTPTimeout != 9*time.Second || settings.HTTPMaxRetries != 4 {
 		t.Errorf("HTTP settings = %s/%d", settings.HTTPTimeout, settings.HTTPMaxRetries)
+	}
+	if settings.RequestWeightPerMinute != 1600 || settings.RequestWeightBurst != 40 {
+		t.Errorf("request weight settings = %d/%d", settings.RequestWeightPerMinute, settings.RequestWeightBurst)
 	}
 	if settings.UniverseEvery != 30*time.Minute || settings.UniverseMinRatio != 85 || settings.MissingConfirms != 3 {
 		t.Errorf("universe settings = %s/%d/%d", settings.UniverseEvery, settings.UniverseMinRatio, settings.MissingConfirms)
@@ -88,6 +93,29 @@ func TestFromEnvRejectsUniverseRatioAboveOneHundred(t *testing.T) {
 	t.Setenv("UNIVERSE_MINIMUM_RATIO_PERCENT", "101")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("expected universe ratio error")
+	}
+}
+
+func TestFromEnvRejectsUnsafeRequestWeightSettings(t *testing.T) {
+	tests := []struct {
+		name      string
+		perMinute string
+		burst     string
+	}{
+		{name: "above Binance limit", perMinute: "2401", burst: "50"},
+		{name: "burst below one kline request", perMinute: "1800", burst: "9"},
+		{name: "burst above budget", perMinute: "20", burst: "21"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/radar")
+			t.Setenv("HTTP_PROXY_URL", "")
+			t.Setenv("BINANCE_REQUEST_WEIGHT_PER_MINUTE", test.perMinute)
+			t.Setenv("BINANCE_REQUEST_WEIGHT_BURST", test.burst)
+			if _, err := FromEnv(); err == nil {
+				t.Fatal("expected request weight error")
+			}
+		})
 	}
 }
 
