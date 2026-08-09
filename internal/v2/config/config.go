@@ -29,6 +29,9 @@ const (
 	defaultWSReconnectSecs  = 5
 	defaultWindowMinutes    = 120
 	defaultSnapshotMaxAge   = 90
+	defaultBackfillHours    = 30
+	defaultBackfillWorkers  = 8
+	maxBackfillWorkers      = 32
 )
 
 // Settings contains only V2 infrastructure settings. V1 configuration remains
@@ -57,6 +60,8 @@ type Settings struct {
 	WSReconnectWait        time.Duration
 	MarketWindow           time.Duration
 	SnapshotMaxAge         time.Duration
+	BackfillLookback       time.Duration
+	BackfillConcurrency    int
 }
 
 func FromEnv() (Settings, error) {
@@ -177,6 +182,20 @@ func FromEnv() (Settings, error) {
 	if time.Duration(snapshotMaxAgeSeconds)*time.Second >= 5*time.Minute {
 		return Settings{}, fmt.Errorf("SNAPSHOT_MAX_EVENT_AGE_SECONDS 必须小于 300")
 	}
+	backfillHours, err := positiveInt("BACKFILL_LOOKBACK_HOURS", defaultBackfillHours)
+	if err != nil {
+		return Settings{}, err
+	}
+	if backfillHours < 25 {
+		return Settings{}, fmt.Errorf("BACKFILL_LOOKBACK_HOURS 不能小于 25")
+	}
+	backfillConcurrency, err := positiveInt("BACKFILL_CONCURRENCY", defaultBackfillWorkers)
+	if err != nil {
+		return Settings{}, err
+	}
+	if backfillConcurrency > maxBackfillWorkers {
+		return Settings{}, fmt.Errorf("BACKFILL_CONCURRENCY 不能大于 %d", maxBackfillWorkers)
+	}
 
 	return Settings{
 		DatabaseURL:            databaseURL,
@@ -202,6 +221,8 @@ func FromEnv() (Settings, error) {
 		WSReconnectWait:        time.Duration(wsReconnectSeconds) * time.Second,
 		MarketWindow:           time.Duration(windowMinutes) * time.Minute,
 		SnapshotMaxAge:         time.Duration(snapshotMaxAgeSeconds) * time.Second,
+		BackfillLookback:       time.Duration(backfillHours) * time.Hour,
+		BackfillConcurrency:    backfillConcurrency,
 	}, nil
 }
 

@@ -28,6 +28,8 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("WS_RECONNECT_WAIT_SECONDS", "6")
 	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "180")
 	t.Setenv("SNAPSHOT_MAX_EVENT_AGE_SECONDS", "75")
+	t.Setenv("BACKFILL_LOOKBACK_HOURS", "36")
+	t.Setenv("BACKFILL_CONCURRENCY", "12")
 
 	settings, err := FromEnv()
 	if err != nil {
@@ -57,6 +59,9 @@ func TestFromEnv(t *testing.T) {
 	if settings.MarketWindow != 3*time.Hour || settings.SnapshotMaxAge != 75*time.Second {
 		t.Errorf("snapshot settings = %s/%s", settings.MarketWindow, settings.SnapshotMaxAge)
 	}
+	if settings.BackfillLookback != 36*time.Hour || settings.BackfillConcurrency != 12 {
+		t.Errorf("backfill settings = %s/%d", settings.BackfillLookback, settings.BackfillConcurrency)
+	}
 }
 
 func TestFromEnvRejectsShortMarketWindow(t *testing.T) {
@@ -65,6 +70,24 @@ func TestFromEnvRejectsShortMarketWindow(t *testing.T) {
 	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "59")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("expected market window error")
+	}
+}
+
+func TestFromEnvRejectsShortBackfillWindow(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/radar")
+	t.Setenv("HTTP_PROXY_URL", "")
+	t.Setenv("BACKFILL_LOOKBACK_HOURS", "24")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected backfill lookback error")
+	}
+}
+
+func TestFromEnvRejectsExcessiveBackfillConcurrency(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/radar")
+	t.Setenv("HTTP_PROXY_URL", "")
+	t.Setenv("BACKFILL_CONCURRENCY", "33")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected backfill concurrency error")
 	}
 }
 

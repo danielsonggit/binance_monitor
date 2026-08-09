@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"binance-monitor/internal/domain/market"
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,78 @@ type KlineRepository struct {
 
 func NewKlineRepository(pool *pgxpool.Pool) *KlineRepository {
 	return &KlineRepository{pool: pool}
+}
+
+func (r *KlineRepository) ActiveSymbols(ctx context.Context) ([]string, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("K 线 PostgreSQL pool 不能为空")
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT symbol
+		FROM instruments
+		WHERE valid_to IS NULL
+		ORDER BY symbol`)
+	if err != nil {
+		return nil, fmt.Errorf("查询回补 active symbols: %w", err)
+	}
+	defer rows.Close()
+	result := make([]string, 0)
+	for rows.Next() {
+		var symbol string
+		if err := rows.Scan(&symbol); err != nil {
+			return nil, fmt.Errorf("读取回补 symbol: %w", err)
+		}
+		result = append(result, symbol)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历回补 symbols: %w", err)
+	}
+	return result, nil
+}
+
+func (r *KlineRepository) ExistingOpenTimes(
+	ctx context.Context,
+	symbols []string,
+	start time.Time,
+	end time.Time,
+) (map[string][]time.Time, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("K 线 PostgreSQL pool 不能为空")
+	}
+	if len(symbols) == 0 {
+		return map[string][]time.Time{}, nil
+	}
+	start = start.UTC()
+	end = end.UTC()
+	if !start.Before(end) {
+		return nil, fmt.Errorf("K 线覆盖查询 start 必须早于 end")
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT i.symbol, k.open_time
+		FROM klines_15m k
+		JOIN instruments i ON i.id = k.instrument_id
+		WHERE i.valid_to IS NULL
+			AND i.symbol = ANY($1)
+			AND k.open_time >= $2
+			AND k.open_time < $3
+		ORDER BY i.symbol, k.open_time`, symbols, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("查询已有 K 线覆盖: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string][]time.Time, len(symbols))
+	for rows.Next() {
+		var symbol string
+		var openTime time.Time
+		if err := rows.Scan(&symbol, &openTime); err != nil {
+			return nil, fmt.Errorf("读取已有 K 线覆盖: %w", err)
+		}
+		result[symbol] = append(result[symbol], openTime.UTC())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历已有 K 线覆盖: %w", err)
+	}
+	return result, nil
 }
 
 func (r *KlineRepository) Save(

@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | ACTIVE |
-| 当前阶段 | MHR-3：历史回补与缺口恢复 |
+| 当前阶段 | MHR-4：多周期收益率与质量门禁 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-09 |
@@ -189,8 +189,8 @@ flowchart LR
 | MHR-0 | 需求基线与活文档 | COMPLETED | 新文档建立、进入 docs 索引、范围和口径明确 | 0.5 天 |
 | MHR-1 | 15m K 线领域模型与 Binance REST 客户端 | COMPLETED | 参数校验、响应解析、错误处理和单元测试全部通过 | 0.5–1 天 |
 | MHR-2 | 限速采集与 PostgreSQL 幂等写入 | COMPLETED | 全局限速、重试、批写、重复写安全；集成测试通过 | 1–1.5 天 |
-| MHR-3 | 历史回补与缺口恢复 | IN_PROGRESS | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
-| MHR-4 | 多周期收益率与质量门禁 | PENDING | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
+| MHR-3 | 历史回补与缺口恢复 | COMPLETED | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
+| MHR-4 | 多周期收益率与质量门禁 | IN_PROGRESS | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
 | MHR-5 | 分板块稳定排名 | PENDING | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
 | MHR-6 | API 与 Telegram 报告 | PENDING | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
 | MHR-7 | 影子运行、部署与验收 | PENDING | jmk 连续运行 24–72 小时；延迟、覆盖率、缺口达标 | 1–3 天观察期 |
@@ -264,13 +264,49 @@ flowchart LR
 - 初次历史回补使用当前 active instrument 记录。`valid_from` 是本系统首次观察时间，不是交易所
   上市时间，因此不能据此错误拒绝更早的合法历史 K 线。
 
-## 13. 后续阶段验收摘要
+## 13. MHR-3 验收结果
 
-### MHR-3
+- [x] 每次回补先读取 PostgreSQL 已有 open time，只计划真实缺失区间。
+- [x] 默认目标窗口为 30 小时，为 24h 计算保留安全余量。
+- [x] 已完成 UTC 日优先读取 Binance 官方 `data.binance.vision` USD-M 15m 日包。
+- [x] 归档 ZIP 通过官方 `.CHECKSUM` SHA-256 校验，并限制压缩和解压体积。
+- [x] 当前 UTC 日、归档 404 和零散缺口使用 `/fapi/v1/klines` 补齐。
+- [x] 支持开头、中间和结尾缺口，不使用最大 open time 伪装完整覆盖。
+- [x] 重复运行只补新增或缺失数据，并在写入后重新验证覆盖率。
+- [x] `collection_runs.metadata` 保存每个计划缺口的恢复状态、剩余点数和最后错误；CLI 输出失败及剩余区间。
+- [x] 单元测试覆盖 UTC 边界、连续区间合并、归档校验、有限重试、REST fallback 和取消。
+- [x] PostgreSQL 集成测试覆盖空标的历史、部分历史、中间缺口和重复回补。
 
-- 默认先回补至少 30 小时，为 24h 计算保留安全余量。
-- 支持从已有最大 open time 继续，不重复扫描全部历史。
-- 可列出每个 symbol 的缺口区间、恢复状态和最后错误。
+验收证据：
+
+- 缺口规划与并发编排：`internal/backfill`。并发单位为 symbol，默认 8、上限 32；所有 REST
+  请求仍共享进程级 Binance 权重 limiter。
+- 官方归档适配器：`internal/binancevision`。只读取 Binance USD-M Futures 15m 日包，先下载
+  `.CHECKSUM`，校验 SHA-256 后才解析 CSV；404 才降级 REST，校验失败不得被 fallback 隐藏。
+- 覆盖查询、幂等 upsert 和任务审计：`internal/storage/postgres`。审计运行记录包含逐缺口状态，
+  同一次审计写入可重试，而不同执行保留独立记录。
+- GitHub 评估确认官方仓库 `binance/binance-public-data` 只提供下载说明与校验脚本，历史数据实体位于
+  `data.binance.vision`；第三方下载器不进入生产依赖。已实测 BTCUSDT、XAUUSDT 日包及 checksum。
+- jmk 空库实跑：716 个 active 合约，30 小时窗口期望 85,920 点；首次写入 103,820 行，
+  其中 `BINANCE_VISION_ARCHIVE=68,736`、`BINANCE_FAPI_REST=35,084`，最终缺口 0、失败 0。
+  写入数大于窗口期望数是因为归档按完整 UTC 日保存，用于减少下一窗口重复下载。
+- jmk 立即重复执行：`present_before=85,920`、`written=0`、`archive_days=0`、
+  `rest_requests=0`、`remaining=0`，证明断点续跑不会重复抓取完整窗口。
+- jmk 独立临时测试库执行真实 PostgreSQL 集成测试通过；测试库随后删除，正式
+  `binance_radar` 数据和其他 PostgreSQL 容器未被清空或修改。
+- `go test -count=1 ./...`、`go vet ./...`、新增模块 race 测试和 `git diff --check` 通过。
+
+关键决定：
+
+- 数据源顺序固定为 PostgreSQL 已有数据 → Binance Vision 已完成 UTC 日 → REST 当前日/404/零散缺口。
+- 归档非 404 错误视为数据完整性失败，不能静默切换 REST；瞬时网络、429 和 5xx 最多尝试 3 次，
+  退避过程响应 context 取消。
+- jmk 的 Clash 当前只监听宿主机 `127.0.0.1:7890`，Docker 不能通过
+  `host.docker.internal:7890` 访问。因此本次验收在 jmk 主机直接运行静态二进制，通过 7890 出网并
+  直连 PostgreSQL 容器 IP；没有修改 Clash、7891、V1 或其他服务。正式容器化 worker 上线前仍需
+  单独解决容器到 7890 的最小权限网络路径。
+
+## 14. 后续阶段验收摘要
 
 ### MHR-4
 
@@ -296,7 +332,7 @@ flowchart LR
 - 连续观察期间无持续缺口，计算延迟和有效 universe 覆盖率达到配置阈值。
 - 人工抽样与 Binance K 线原始值复核至少 10 个 symbol × 4 个周期。
 
-## 14. 文档更新规则
+## 15. 文档更新规则
 
 每完成一个阶段，必须在同一个代码变更中更新本文档：
 
@@ -307,7 +343,7 @@ flowchart LR
 5. 新发现的风险必须进入“主要阻碍与处理策略”，不能只留在聊天记录中。
 6. 需求发生变化时先更新本文档，再修改代码。
 
-## 15. 执行记录
+## 16. 执行记录
 
 ### 2026-08-09 — MHR-0 完成，MHR-1 开始
 
@@ -335,3 +371,13 @@ flowchart LR
 - 使用独立临时 PostgreSQL 17 容器完成真实集成验收；测试后容器已停止并自动删除。
 - 全仓库普通测试、vet、全仓库 race 和 diff 检查全部通过；未连接 jmk，未修改 V1。
 - 下一步实现至少 30 小时历史回补、按最大已存 open time 断点续跑和缺口审计。
+
+### 2026-08-09 — MHR-3 完成，MHR-4 开始
+
+- 完成完整时间网格缺口规划，能够识别首部、中间和尾部缺口，并将相邻缺口合并为半开区间。
+- 完成 Binance Vision 官方日包下载、checksum 校验、ZIP/CSV 安全解析、有限重试和 REST fallback。
+- 完成按 symbol 的受控并发、共享 REST 权重预算、写后覆盖复核和重复运行零请求。
+- 使用 `collection_runs` 保存每次执行及逐缺口恢复状态，不增加另一套重复审计表。
+- 在 jmk 正式 V2 数据库完成 716 个合约的 30 小时空库回补，最终缺口和失败均为 0。
+- 在 jmk 独立临时测试库完成空历史、部分历史、中间缺口、重复回补及审计集成测试；测试库已删除。
+- 全仓库测试、vet、目标模块 race 和 diff 检查通过；下一步实现多周期收益率与质量门禁。

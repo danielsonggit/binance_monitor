@@ -85,6 +85,26 @@ func TestKlineRepositoryIdempotentUpsertIntegration(t *testing.T) {
 	if rows != 2 || closePrice != "106.250000000000000000" || !receivedAt.Equal(batch.ReceivedAt) {
 		t.Fatalf("rows=%d close=%s received_at=%s", rows, closePrice, receivedAt)
 	}
+	symbols, err := repository.ActiveSymbols(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(symbols) != 1 || symbols[0] != "BTCUSDT" {
+		t.Fatalf("active symbols = %#v", symbols)
+	}
+	coverage, err := repository.ExistingOpenTimes(
+		ctx,
+		symbols,
+		first.OpenTime,
+		second.OpenTime.Add(15*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coverage["BTCUSDT"]) != 2 || !coverage["BTCUSDT"][0].Equal(first.OpenTime) ||
+		!coverage["BTCUSDT"][1].Equal(second.OpenTime) {
+		t.Fatalf("coverage = %#v", coverage)
+	}
 
 	incomplete := integrationKline(observedAt)
 	if _, err := repository.Save(ctx, market.KlineBatch{

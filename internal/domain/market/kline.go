@@ -14,6 +14,7 @@ const (
 	KlineInterval15m          KlineInterval = "15m"
 	KlineMaxRequestLimit                    = 1500
 	KlineSourceBinanceFutures               = "BINANCE_FAPI_REST"
+	KlineSourceBinanceVision                = "BINANCE_VISION_ARCHIVE"
 )
 
 func (i KlineInterval) Duration() (time.Duration, error) {

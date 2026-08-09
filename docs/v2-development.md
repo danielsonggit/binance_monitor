@@ -88,8 +88,25 @@
     - 网络错误、418、429、5xx 有限重试，永久参数错误不重试，退避支持取消；
     - 已用隔离 PostgreSQL 17 实例完成重复写、更新、整批拒绝集成测试；
     - 全仓库普通测试、vet 与全仓库 race 测试通过。
+27. 已完成 MHR-3 历史回补与缺口恢复：
+    - 按完整 15 分钟时间网格读取 PostgreSQL 覆盖，识别首部、中间和尾部缺口；
+    - 已完成 UTC 日优先使用 Binance 官方 Vision 日包，SHA-256 校验后才解析；
+    - 当前日、归档 404 和零散区间使用 `/fapi/v1/klines`，非 404 归档错误不会被隐藏；
+    - 按 symbol 默认 8 并发，REST 继续共用全局权重 limiter；
+    - 写入后重新查询覆盖，重复运行完整窗口时不再发网络请求；
+    - `collection_runs` 保存每个缺口的 `RECOVERED/PARTIAL/MISSING`、剩余点数和最后错误；
+    - jmk 真实空库回补 716 个合约、85,920 个目标点，最终缺口 0、失败 0；
+    - jmk 独立临时测试库覆盖空历史、部分历史、中间缺口和重复回补，测试后已删除。
 
-`backfill` 当前只有命令入口，会明确返回“下一批实现”，不会假装已经采集历史数据。
+`backfill` 已可执行真实历史回补：
+
+```bash
+binance-monitor backfill --env-file /absolute/path/.env.v2
+```
+
+默认回补最近 30 小时已完成的 15 分钟 K 线。`BACKFILL_LOOKBACK_HOURS` 不得小于 25，
+`BACKFILL_CONCURRENCY` 默认 8、最大 32。输出包括覆盖数、写入数、归档/REST 请求数、
+剩余缺口和失败区间；完整审计保存在 PostgreSQL `collection_runs`。
 
 ## 本地启动 V2 基础设施
 
@@ -162,7 +179,7 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 实现至少 30 小时历史回补、按最大已存 open time 断点续跑和缺口审计；
+1. 实现 15m/1h/4h/24h 收益率和数据完整度门禁；
 2. 使用已完成 K 线补充重启后的精确历史，miniTicker 缺口只作质量记录，不伪造回补；
-3. 实现 15m/1h/4h/24h 收益率和数据完整度门禁；
+3. 按 Crypto/TradFi 生成稳定 Top N，并保存可复现计算快照；
 4. 增加采集完整率和最近缺口的只读健康 API。

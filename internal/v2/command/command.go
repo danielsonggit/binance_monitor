@@ -2,12 +2,14 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
+	"binance-monitor/internal/backfill"
 	"binance-monitor/internal/binance"
+	"binance-monitor/internal/binancevision"
 	"binance-monitor/internal/binancews"
 	"binance-monitor/internal/collector"
 	legacyconfig "binance-monitor/internal/config"
@@ -34,7 +36,7 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newDatabaseCommand("migrate", "执行 V2 PostgreSQL schema migration", stdout, stderr, runMigrate),
 		newDatabaseCommand("worker", "运行 V2 市场采集与后台任务", stdout, stderr, runWorker),
 		newDatabaseCommand("api", "运行 V2 只读 API 和健康接口", stdout, stderr, runAPI),
-		newBackfillCommand(stderr),
+		newDatabaseCommand("backfill", "回补 V2 历史行情数据", stdout, stderr, runBackfill),
 	}
 }
 
@@ -79,23 +81,6 @@ func newDatabaseCommand(
 	return command
 }
 
-func newBackfillCommand(stderr io.Writer) *cobra.Command {
-	var opts options
-	command := &cobra.Command{
-		Use:   "backfill",
-		Short: "回补 V2 历史行情数据",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if _, _, err := loadSettings(opts, stderr); err != nil {
-				return err
-			}
-			return errors.New("backfill 命令骨架已注册，历史行情采集将在 Phase 1 下一批实现")
-		},
-	}
-	bindFlags(command, &opts)
-	return command
-}
-
 func bindFlags(command *cobra.Command, options *options) {
 	command.Flags().StringVar(&options.envFile, "env-file", ".env.v2", "V2 环境变量文件")
 	command.Flags().BoolVar(&options.verbose, "verbose", false, "输出调试日志")
@@ -130,6 +115,71 @@ func runMigrate(
 	}
 	_, err = fmt.Fprintf(stdout, "migration 完成：applied=%d current_version=%d\n", result.Applied, result.CurrentVersion)
 	return err
+}
+
+func runBackfill(
+	ctx context.Context,
+	settings v2config.Settings,
+	resources *postgres.Resources,
+	_ *slog.Logger,
+	stdout io.Writer,
+) error {
+	httpClient, err := httpjson.NewWithProxy(settings.HTTPTimeout, settings.HTTPMaxRetries, settings.ProxyURL)
+	if err != nil {
+		return err
+	}
+	requestLimiter, err := ratelimit.NewWeightLimiter(settings.RequestWeightPerMinute, settings.RequestWeightBurst)
+	if err != nil {
+		return err
+	}
+	restClient, err := binance.NewWithWeightLimiter(settings.BinanceBaseURL, httpClient, requestLimiter)
+	if err != nil {
+		return err
+	}
+	archiveClient, err := binancevision.New(settings.ProxyURL)
+	if err != nil {
+		return err
+	}
+	service, err := backfill.NewService(postgres.NewKlineRepository(resources.Pool), archiveClient, restClient, backfill.SystemClock{})
+	if err != nil {
+		return err
+	}
+	startedAt := time.Now().UTC()
+	result, err := service.Run(ctx, settings.BackfillLookback, settings.BackfillConcurrency)
+	if err != nil {
+		return err
+	}
+	if err := postgres.NewBackfillAuditRepository(resources.Pool).Record(
+		ctx, result, startedAt, time.Now().UTC(),
+	); err != nil {
+		return err
+	}
+	_, writeErr := fmt.Fprintf(stdout,
+		"backfill 完成：symbols=%d expected=%d present_before=%d written=%d archive_days=%d rest_requests=%d remaining=%d failures=%d\n",
+		result.Symbols, result.Expected, result.PresentBefore, result.Written, result.ArchiveDays,
+		result.RESTRequests, result.Remaining, len(result.Failures),
+	)
+	if writeErr != nil {
+		return writeErr
+	}
+	for _, failure := range result.Failures {
+		if _, err := fmt.Fprintf(stdout, "失败区间：symbol=%s start=%s end=%s error=%v\n",
+			failure.Symbol, failure.Start.Format(time.RFC3339), failure.End.Format(time.RFC3339), failure.Err,
+		); err != nil {
+			return err
+		}
+	}
+	for _, gap := range result.RemainingGaps {
+		if _, err := fmt.Fprintf(stdout, "剩余缺口：symbol=%s start=%s end=%s count=%d\n",
+			gap.Symbol, gap.Start.Format(time.RFC3339), gap.End.Format(time.RFC3339), gap.Count,
+		); err != nil {
+			return err
+		}
+	}
+	if len(result.Failures) > 0 {
+		return fmt.Errorf("backfill 有 %d 个失败区间", len(result.Failures))
+	}
+	return nil
 }
 
 func runWorker(

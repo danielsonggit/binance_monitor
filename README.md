@@ -10,6 +10,11 @@
 > V2 市场雷达正在 `feature/v2-market-radar` 分支开发。V2 的产品、业务架构、
 > 技术架构和执行计划参见 [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
 
+V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储和至少 30 小时的历史回补。
+已完成 UTC 日优先使用 Binance 官方校验归档，当前日和缺口使用 Futures REST；执行方法、
+环境变量和验收结果见 [V2 开发进度](docs/v2-development.md) 与
+[多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。
+
 ## 功能
 
 - 自动识别 Binance TradFi 与 Crypto 永续合约。
