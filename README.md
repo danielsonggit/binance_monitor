@@ -7,6 +7,9 @@
 
 `24:00` 与次日 `00:00` 是同一时刻，因此每天实际有 6 个不重复的推送时点。
 
+> V2 市场雷达正在 `feature/v2-market-radar` 分支开发。V2 的产品、业务架构、
+> 技术架构和执行计划参见 [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
+
 ## 功能
 
 - 自动识别 Binance TradFi 与 Crypto 永续合约。
@@ -21,7 +24,8 @@
 - 整点执行失败后，在宽限期内每分钟重试。
 - 支持 Telegram 论坛群组的指定话题。
 - 资产资料通过 `go:embed` 编入二进制，部署时不依赖项目源文件。
-- 只使用 Go 标准库，没有第三方 Go 依赖。
+- V1 核心业务保持轻量；统一 CLI 使用 Cobra。V2 按边界引入 pgx、Binance 官方 SDK 和
+  shopspring/decimal，具体版本与隔离规则见 `docs/v2-development.md`。
 
 ## 数据口径
 
