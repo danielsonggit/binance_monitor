@@ -12,19 +12,25 @@ import (
 	"binance-monitor/internal/binance"
 	"binance-monitor/internal/binancevision"
 	"binance-monitor/internal/binancews"
+	"binance-monitor/internal/catalog"
 	"binance-monitor/internal/collector"
 	legacyconfig "binance-monitor/internal/config"
 	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/feature"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/marketdata"
+	"binance-monitor/internal/marketquery"
+	"binance-monitor/internal/notification"
 	"binance-monitor/internal/ranking"
 	"binance-monitor/internal/ratelimit"
 	"binance-monitor/internal/storage/postgres"
+	"binance-monitor/internal/telegram"
 	"binance-monitor/internal/universe"
 	"binance-monitor/internal/v2/api"
 	v2config "binance-monitor/internal/v2/config"
 	v2pipeline "binance-monitor/internal/v2/pipeline"
+	v2report "binance-monitor/internal/v2/report"
+	v2reporter "binance-monitor/internal/v2/reporter"
 	"binance-monitor/internal/v2/worker"
 
 	"github.com/spf13/cobra"
@@ -43,6 +49,8 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newDatabaseCommand("backfill", "回补 V2 历史行情数据", stdout, stderr, runBackfill),
 		newDatabaseCommand("features", "回补行情并计算 V2 多周期收益率与排名", stdout, stderr, runFeatures),
 		newRankingsCommand(stdout, stderr),
+		newDatabaseCommand("report", "预览最新 V2 多周期 Telegram 报告，不发送", stdout, stderr, runReport),
+		newDatabaseCommand("reporter", "运行 V2 Telegram 定时报表与可靠发送器", stdout, stderr, runReporter),
 	}
 }
 
@@ -342,8 +350,79 @@ func runAPI(
 	logger *slog.Logger,
 	_ io.Writer,
 ) error {
-	server := api.New(settings.WebListenAddr, settings.ShutdownTimeout, resources.Pool, logger)
+	reader, err := newMarketQueryService(resources)
+	if err != nil {
+		return err
+	}
+	server := api.New(settings.WebListenAddr, settings.ShutdownTimeout, resources.Pool, reader, logger)
 	return server.Run(ctx)
+}
+
+func runReport(
+	ctx context.Context,
+	settings v2config.Settings,
+	resources *postgres.Resources,
+	_ *slog.Logger,
+	stdout io.Writer,
+) error {
+	reports, err := newReportService(settings, resources)
+	if err != nil {
+		return err
+	}
+	snapshot, messages, err := reports.Messages(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "report 预览：as_of=%s messages=%d\n\n%s\n",
+		snapshot.AsOf.Format(time.RFC3339), len(messages), v2report.Plain(messages)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runReporter(
+	ctx context.Context,
+	settings v2config.Settings,
+	resources *postgres.Resources,
+	logger *slog.Logger,
+	_ io.Writer,
+) error {
+	if settings.TelegramBotToken == "" || len(settings.TelegramChatIDs) == 0 {
+		return fmt.Errorf("reporter 需要 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_IDS")
+	}
+	reports, err := newReportService(settings, resources)
+	if err != nil {
+		return err
+	}
+	// Telegram transport must make exactly one HTTP attempt. The durable outbox
+	// owns retries so a timeout cannot be retried invisibly and duplicate a send.
+	httpClient, err := httpjson.NewWithProxy(settings.HTTPTimeout, 1, settings.ProxyURL)
+	if err != nil {
+		return err
+	}
+	notifications := postgres.NewNotificationRepository(resources.Pool)
+	enqueuer, err := notification.NewEnqueuer(notifications, settings.TelegramChatIDs)
+	if err != nil {
+		return err
+	}
+	dispatcher, err := notification.NewDispatcher(
+		notifications,
+		telegram.New(settings.TelegramBotToken, "", httpClient, nil),
+		settings.TelegramRetryBase,
+		2*time.Minute,
+	)
+	if err != nil {
+		return err
+	}
+	service, err := v2reporter.New(
+		reports, enqueuer, dispatcher, v2reporter.SystemClock{},
+		settings.Location, settings.ReportHours, settings.ReportGrace,
+		settings.ReporterPollEvery, settings.TelegramMaxAttempts, logger,
+	)
+	if err != nil {
+		return err
+	}
+	return service.Run(ctx)
 }
 
 type marketClients struct {
@@ -436,4 +515,20 @@ func newRankingService(settings v2config.Settings, resources *postgres.Resources
 		calculator,
 		ranking.SystemClock{},
 	)
+}
+
+func newMarketQueryService(resources *postgres.Resources) (*marketquery.Service, error) {
+	return marketquery.NewService(postgres.NewMarketQueryRepository(resources.Pool))
+}
+
+func newReportService(settings v2config.Settings, resources *postgres.Resources) (*v2report.Service, error) {
+	reader, err := newMarketQueryService(resources)
+	if err != nil {
+		return nil, err
+	}
+	assets, err := catalog.Default()
+	if err != nil {
+		return nil, err
+	}
+	return v2report.NewService(reader, assets, settings.Location, settings.RankingTopN)
 }

@@ -35,6 +35,13 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("FEATURE_MINIMUM_QUALITY_SCORE", "80")
 	t.Setenv("FEATURE_CALCULATION_DELAY_SECONDS", "7")
 	t.Setenv("RANKING_TOP_N", "8")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "test-token")
+	t.Setenv("TELEGRAM_CHAT_IDS", "-1001,-1002,-1001")
+	t.Setenv("REPORT_HOURS", "20,0,4")
+	t.Setenv("REPORT_GRACE_MINUTES", "12")
+	t.Setenv("REPORTER_POLL_SECONDS", "9")
+	t.Setenv("TELEGRAM_MAX_ATTEMPTS", "4")
+	t.Setenv("TELEGRAM_RETRY_BASE_SECONDS", "45")
 
 	settings, err := FromEnv()
 	if err != nil {
@@ -76,6 +83,14 @@ func TestFromEnv(t *testing.T) {
 	if settings.RankingTopN != 8 {
 		t.Errorf("RankingTopN = %d", settings.RankingTopN)
 	}
+	if settings.TelegramBotToken != "test-token" || !reflect.DeepEqual(settings.TelegramChatIDs, []string{"-1001", "-1002"}) {
+		t.Errorf("telegram settings = %q/%v", settings.TelegramBotToken, settings.TelegramChatIDs)
+	}
+	if !reflect.DeepEqual(settings.ReportHours, []int{0, 4, 20}) || settings.ReportGrace != 12*time.Minute ||
+		settings.ReporterPollEvery != 9*time.Second || settings.TelegramMaxAttempts != 4 || settings.TelegramRetryBase != 45*time.Second {
+		t.Errorf("report settings = %v/%s/%s/%d/%s", settings.ReportHours, settings.ReportGrace,
+			settings.ReporterPollEvery, settings.TelegramMaxAttempts, settings.TelegramRetryBase)
+	}
 }
 
 func TestFromEnvRejectsShortMarketWindow(t *testing.T) {
@@ -115,6 +130,10 @@ func TestFromEnvRejectsUnsafeFeatureSettings(t *testing.T) {
 		{key: "FEATURE_MINIMUM_QUALITY_SCORE", value: "101"},
 		{key: "FEATURE_CALCULATION_DELAY_SECONDS", value: "300"},
 		{key: "RANKING_TOP_N", value: "101"},
+		{key: "REPORT_GRACE_MINUTES", value: "60"},
+		{key: "REPORTER_POLL_SECONDS", value: "61"},
+		{key: "TELEGRAM_MAX_ATTEMPTS", value: "11"},
+		{key: "TELEGRAM_RETRY_BASE_SECONDS", value: "3601"},
 	}
 	for _, test := range tests {
 		t.Run(test.key, func(t *testing.T) {
@@ -125,6 +144,15 @@ func TestFromEnvRejectsUnsafeFeatureSettings(t *testing.T) {
 				t.Fatalf("expected %s error", test.key)
 			}
 		})
+	}
+}
+
+func TestFromEnvRejectsInvalidReportHours(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/radar")
+	t.Setenv("HTTP_PROXY_URL", "")
+	t.Setenv("REPORT_HOURS", "0,24")
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected report hours error")
 	}
 }
 

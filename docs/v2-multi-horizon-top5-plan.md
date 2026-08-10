@@ -7,11 +7,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | ACTIVE |
-| 当前阶段 | MHR-6：API 与 Telegram 报告 |
+| 当前阶段 | MHR-7：影子运行、部署与验收 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-09 |
-| 最后更新 | 2026-08-09 |
+| 最后更新 | 2026-08-10 |
 
 ## 2. 背景与目标
 
@@ -193,8 +193,8 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 | MHR-3 | 历史回补与缺口恢复 | COMPLETED | 可回补至少 30 小时；支持断点续跑；缺口审计可查询 | 1–1.5 天 |
 | MHR-4 | 多周期收益率与质量门禁 | COMPLETED | 15m/1h/4h/24h 计算正确；缺失/陈旧数据被排除 | 1–1.5 天 |
 | MHR-5 | 分板块稳定排名 | COMPLETED | Crypto/TradFi 各周期 Top N 正确且结果可复现 | 0.5–1 天 |
-| MHR-6 | API 与 Telegram 报告 | IN_PROGRESS | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
-| MHR-7 | 影子运行、部署与验收 | PENDING | jmk 连续运行 24–72 小时；延迟、覆盖率、缺口达标 | 1–3 天观察期 |
+| MHR-6 | API 与 Telegram 报告 | COMPLETED | API 可查询；消息格式、长度、失败处理测试通过 | 1–1.5 天 |
+| MHR-7 | 影子运行、部署与验收 | IN_PROGRESS | jmk 连续运行 24–72 小时；延迟、覆盖率、缺口达标 | 1–3 天观察期 |
 
 整体开发预计约 7–10 个开发日，另加 24–72 小时影子运行。实际进度以验收证据为准，不以估时为准。
 
@@ -396,13 +396,43 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 重放榜单不重新访问 Binance，也不重算收益；其输入固定为指定 `as_of + feature_version` 的
   `return_feature_snapshots`。
 
-## 16. 后续阶段验收摘要
+## 16. MHR-6 验收结果
 
-### MHR-6
+- [x] API 返回 `as_of`、周期、板块、排名、质量和覆盖率。
+- [x] API 只访问 PostgreSQL，不在查询请求中访问 Binance。
+- [x] Telegram 报告只包含 TradFi/Crypto 的四周期涨幅 Top 5，不包含跌幅榜。
+- [x] 报告展示数据时间、覆盖率、四周期收益、价格、成交额、标的介绍和风险提示。
+- [x] 消息按 Telegram UTF-16 长度限制安全拆分，单片不超过 3,900 units。
+- [x] PostgreSQL outbox 使用计划时点幂等键，接收人与分片在入队时冻结。
+- [x] 确定的临时失败有限重试；不确定发送结果进入 `UNKNOWN`，不自动制造重复消息。
+- [x] 进程在 `SENDING` 后退出时恢复为 `UNKNOWN`；未开始发送的超时任务恢复为 `RETRY`。
+- [x] PostgreSQL 集成测试、全仓库测试、vet、目标模块 race 和 jmk smoke 全部通过。
 
-- API 返回 `as_of`、周期、板块、排名、质量和覆盖率。
-- Telegram 只推送涨幅 Top 5，并能在 Telegram 消息长度限制内安全拆分。
-- Telegram 发送失败可观测、可重试且不会无限重复发送。
+验收证据：
+
+- 查询领域与 repository：`internal/marketquery`、`internal/storage/postgres/market_query_repository.go`。
+- API：`GET /api/v2/rankings`、`GET /api/v2/features/{symbol}`、`GET /api/v2/quality`。
+- 报告：`internal/v2/report`；真实 `13:45 UTC` 数据生成 8 组榜单、4 个 Telegram 分片，未出现跌幅榜。
+- 可靠发送：`internal/notification`、`internal/v2/reporter`、
+  `internal/storage/postgres/notification_repository.go`。
+- migration 6 新增 `notification_outbox` 与 `notification_deliveries`；在 jmk 临时库执行 migration 1–6
+  和全部 PostgreSQL 集成测试通过，临时库随后确认删除。
+- jmk 正式 V2 schema 从 5 前向迁移到 6，第二次执行为 `applied=0`；迁移后保留
+  2,864 条特征、16 个历史榜单头，outbox/delivery 均为 0。
+- jmk 临时 API 仅绑定 `127.0.0.1:18086`，live/ready、榜单、BTCUSDT 特征和质量接口均通过；
+  smoke 后端口已关闭。
+- 报告 dry-run 数据覆盖为 `2860/2864 = 99.860335%`；未启动 reporter、未请求 Telegram。
+
+关键决定：
+
+- HTTP 传输超时、408 和 5xx 可能发生在 Telegram 已接收请求之后，因此不能安全自动重试；系统保存
+  `UNKNOWN` 供人工核对。DNS/dial 失败和 HTTP 429 属于确定未成功，可按上限退避重试。
+- Telegram 每个投递只执行一次 HTTP 请求；通用 HTTP 客户端的内部重试在 reporter 路径固定为 1，
+  防止数据库不可见的重复尝试。
+- outbox 保存入队时的 Chat ID 集合；后续修改 `TELEGRAM_CHAT_IDS` 不改变历史任务接收人。
+- `report` 是纯预览命令；只有独立 `reporter` 进程能发送消息，worker/API 不持有发送职责。
+
+## 17. 后续阶段验收摘要
 
 ### MHR-7
 
@@ -410,7 +440,7 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 连续观察期间无持续缺口，计算延迟和有效 universe 覆盖率达到配置阈值。
 - 人工抽样与 Binance K 线原始值复核至少 10 个 symbol × 4 个周期。
 
-## 17. 文档更新规则
+## 18. 文档更新规则
 
 每完成一个阶段，必须在同一个代码变更中更新本文档：
 
@@ -421,7 +451,7 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 5. 新发现的风险必须进入“主要阻碍与处理策略”，不能只留在聊天记录中。
 6. 需求发生变化时先更新本文档，再修改代码。
 
-## 18. 执行记录
+## 19. 执行记录
 
 ### 2026-08-09 — MHR-0 完成，MHR-1 开始
 
@@ -485,3 +515,16 @@ PostgreSQL 的 5 分钟快照和已完成 15 分钟 K 线，24h 始终以 Postgr
 - 临时 PostgreSQL 集成测试通过并删除测试库；正式 migration 当前版本为 5。
 - worker 短时 smoke 后正常停止，没有常驻 V2 进程；V1、7891、Clash 和其他容器未修改。
 - 下一步实现排名/收益/质量只读 API，并生成 Telegram 多周期涨幅 Top 5 模板。
+
+### 2026-08-10 — MHR-6 完成，MHR-7 开始
+
+- 新增排名、单 symbol 收益和整体质量只读 API；使用 typed validation error、查询超时和统一 JSON 错误。
+- 新增多周期报告服务，严格读取同一 `as_of` 的 8 个榜单组，并按 Telegram UTF-16 限制拆分。
+- 新增 PostgreSQL durable outbox、逐 Chat/分片 delivery、计划时点幂等、有限退避和租约恢复。
+- 接收人在入队时冻结；已成功分片不会重发；不确定结果保存为 `UNKNOWN`，避免假装 exactly-once。
+- 新增 `report` 预览命令与独立 `reporter` 常驻命令；Telegram 路径禁用 HTTP 客户端内部重试。
+- 本地全仓库测试、vet、目标模块 race 和 diff 检查通过。
+- jmk 临时库执行 migration 1–6 与全部 PostgreSQL 集成测试通过，测试库已确认删除。
+- 正式 V2 schema 已安全迁移到 6；重复迁移为 0，历史特征与榜单数据保持不变。
+- jmk localhost API smoke 和正式数据报告 dry-run 通过；未运行 reporter、未发送 Telegram、未修改 V1/7891。
+- 下一步将 worker/API 以 V2 独立服务进入 24–72 小时影子运行，正式 Telegram 发送仍需单独启用。

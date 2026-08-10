@@ -14,7 +14,7 @@ func TestCommandsHaveUniqueNames(t *testing.T) {
 		}
 		seen[command.Name()] = struct{}{}
 	}
-	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings"} {
+	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings", "report", "reporter"} {
 		if _, exists := seen[expected]; !exists {
 			t.Errorf("missing command %q", expected)
 		}

@@ -194,7 +194,11 @@ sequenceDiagram
     PG-->>UI: 返回只读视图
 ```
 
-关键一致性点是“信号事件 + outbox”同事务提交。Telegram 是外部系统，不可能和数据库做分布式事务，因此发送器至少一次处理 outbox，再依靠业务幂等键阻止重复业务消息。
+关键一致性点是“信号事件 + outbox”同事务提交。Telegram 是外部系统，不支持本系统提供的幂等键，
+也不可能和 PostgreSQL 做分布式事务，因此不能同时承诺严格 exactly-once 和所有故障下最终送达。
+发送器在数据库中先标记 `SENDING`，每个分片只执行一次 HTTP 请求：确定未送达的 DNS/dial/429
+才有限重试；超时、408、5xx 或发送成功后落库失败均进入 `UNKNOWN`，由人工核对，不自动冒险重发。
+业务幂等键解决重复入队，逐分片 `SENT` 状态解决已确认成功后的重复发送。
 
 ## 6. PostgreSQL 数据模型
 
@@ -213,8 +217,8 @@ sequenceDiagram
 | `signal_lifecycles` | `id, instrument_id, direction, current_state, started_at, closed_at, rule_version_id` | 每个活动生命周期唯一 |
 | `signal_events` | `id, lifecycle_id, from_state, to_state, occurred_at, score, evidence_json` | 不可变状态转移日志 |
 | `signal_evaluations` | `signal_event_id, horizon, return, mfe, mae, evaluated_at` | 结果评估；事件和周期唯一 |
-| `notification_outbox` | `id, idempotency_key, payload, status, attempts, next_attempt_at` | 可靠发送队列 |
-| `notification_deliveries` | `outbox_id, chat_id, telegram_message_id, sent_at, error` | 多 Chat ID 发送审计 |
+| `notification_outbox` | `id, idempotency_key, scheduled_for, data_as_of, payload_json, status, attempts, next_attempt_at, locked_at` | 可靠发送队列 |
+| `notification_deliveries` | `outbox_id, chat_id, part_index, status, attempts, telegram_message_id, error` | 多 Chat ID、逐消息分片发送审计 |
 | `collection_runs` | `job_type, window, expected, actual, missing, status, error` | 数据质量与任务审计 |
 | `system_heartbeats` | `component, observed_at, status, detail_json` | 健康页数据 |
 
@@ -239,7 +243,18 @@ sequenceDiagram
 
 ## 7. API 与 Web
 
-首期只读 API 建议：
+MHR-6 已实现的第一批只读 API：
+
+```text
+GET /api/v2/rankings?sector=CRYPTO&horizon=1h&limit=5
+GET /api/v2/features/{symbol}
+GET /api/v2/quality
+GET /health/live
+GET /health/ready
+```
+
+API 只查询 PostgreSQL，不在请求路径访问 Binance；业务查询使用 3 秒 context 超时。
+后续雷达、生命周期与评估 API 规划如下：
 
 ```text
 GET /api/v1/radar?sector=&state=&min_score=

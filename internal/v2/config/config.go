@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,10 @@ const (
 	defaultFeatureMinimumQuality     = 75
 	defaultFeatureDelaySeconds       = 5
 	defaultRankingTopN               = 5
+	defaultReportGraceMinutes        = 10
+	defaultReporterPollSeconds       = 15
+	defaultTelegramMaxAttempts       = 3
+	defaultTelegramRetryBaseSeconds  = 30
 )
 
 // Settings contains only V2 infrastructure settings. V1 configuration remains
@@ -74,6 +79,13 @@ type Settings struct {
 	FeatureMinimumQuality    int16
 	FeatureCalculationDelay  time.Duration
 	RankingTopN              int
+	TelegramBotToken         string
+	TelegramChatIDs          []string
+	ReportHours              []int
+	ReportGrace              time.Duration
+	ReporterPollEvery        time.Duration
+	TelegramMaxAttempts      int
+	TelegramRetryBase        time.Duration
 }
 
 func FromEnv() (Settings, error) {
@@ -243,6 +255,38 @@ func FromEnv() (Settings, error) {
 	if rankingTopN > 100 {
 		return Settings{}, fmt.Errorf("RANKING_TOP_N 不能大于 100")
 	}
+	reportHours, err := parseHours(envOr("REPORT_HOURS", "0,4,8,12,16,20"))
+	if err != nil {
+		return Settings{}, err
+	}
+	reportGraceMinutes, err := positiveInt("REPORT_GRACE_MINUTES", defaultReportGraceMinutes)
+	if err != nil {
+		return Settings{}, err
+	}
+	if reportGraceMinutes > 59 {
+		return Settings{}, fmt.Errorf("REPORT_GRACE_MINUTES 不能大于 59")
+	}
+	reporterPollSeconds, err := positiveInt("REPORTER_POLL_SECONDS", defaultReporterPollSeconds)
+	if err != nil {
+		return Settings{}, err
+	}
+	if reporterPollSeconds > 60 {
+		return Settings{}, fmt.Errorf("REPORTER_POLL_SECONDS 不能大于 60")
+	}
+	telegramMaxAttempts, err := positiveInt("TELEGRAM_MAX_ATTEMPTS", defaultTelegramMaxAttempts)
+	if err != nil {
+		return Settings{}, err
+	}
+	if telegramMaxAttempts > 10 {
+		return Settings{}, fmt.Errorf("TELEGRAM_MAX_ATTEMPTS 不能大于 10")
+	}
+	telegramRetryBaseSeconds, err := positiveInt("TELEGRAM_RETRY_BASE_SECONDS", defaultTelegramRetryBaseSeconds)
+	if err != nil {
+		return Settings{}, err
+	}
+	if telegramRetryBaseSeconds > 3600 {
+		return Settings{}, fmt.Errorf("TELEGRAM_RETRY_BASE_SECONDS 不能大于 3600")
+	}
 
 	return Settings{
 		DatabaseURL:              databaseURL,
@@ -275,6 +319,13 @@ func FromEnv() (Settings, error) {
 		FeatureMinimumQuality:    int16(featureMinimumQuality),
 		FeatureCalculationDelay:  time.Duration(featureDelaySeconds) * time.Second,
 		RankingTopN:              rankingTopN,
+		TelegramBotToken:         strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
+		TelegramChatIDs:          splitUnique(strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_IDS"))),
+		ReportHours:              reportHours,
+		ReportGrace:              time.Duration(reportGraceMinutes) * time.Minute,
+		ReporterPollEvery:        time.Duration(reporterPollSeconds) * time.Second,
+		TelegramMaxAttempts:      telegramMaxAttempts,
+		TelegramRetryBase:        time.Duration(telegramRetryBaseSeconds) * time.Second,
 	}, nil
 }
 
@@ -326,4 +377,42 @@ func splitUniqueUpper(raw string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func splitUnique(raw string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func parseHours(raw string) ([]int, error) {
+	seen := make(map[int]struct{})
+	result := make([]int, 0)
+	for _, part := range strings.Split(raw, ",") {
+		value, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || value < 0 || value > 23 {
+			return nil, fmt.Errorf("REPORT_HOURS 必须是 0 到 23 的逗号分隔整数，当前值：%q", raw)
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("REPORT_HOURS 不能为空")
+	}
+	sort.Ints(result)
+	return result, nil
 }

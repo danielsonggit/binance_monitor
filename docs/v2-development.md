@@ -1,6 +1,6 @@
 # Binance Market Radar V2：开发进度
 
-更新时间：2026-08-09
+更新时间：2026-08-10
 
 当前分支：`feature/v2-market-radar`
 
@@ -9,12 +9,13 @@
 - Phase 0：产品与架构设计已完成；
 - Phase 1：数据库与采集开发项完成，连续影子验收留到 MHR-7；
 - Phase 2：多周期收益率、质量门禁和分板块排名已完成，候选信号与生命周期继续开发；
-- Phase 3 及以后：尚未开始。
+- Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API 已完成；MHR-7 影子运行待部署；
+- Phase 4 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
 
 1. CLI 已统一使用 Cobra；V1 默认 CLI 和部署行为保持兼容，显式 `binance-monitor v1` 也可进入 V1。
-2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings` 六个独立 V2 角色。
+2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings`、`report`、`reporter` 八个独立 V2 角色。
 3. V2 配置位于 `internal/v2/config`，不把数据库和 Web 配置混入 V1。
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
@@ -24,12 +25,16 @@
    - 分区表 `klines_15m`；
    - 分区表 `return_feature_snapshots`；
    - 分区榜单头 `ranking_snapshots` 与榜单项 `ranking_snapshot_items`；
+   - 可靠通知 `notification_outbox` 与逐 Chat/分片审计 `notification_deliveries`；
    - 采集审计 `collection_runs`；
    - 组件心跳 `system_heartbeats`。
 7. V2 worker 已形成独立生命周期，能周期写入数据库心跳。
 8. V2 API 已提供：
    - `GET /health/live`；
-   - `GET /health/ready`，实际检查 PostgreSQL。
+   - `GET /health/ready`，实际检查 PostgreSQL；
+   - `GET /api/v2/rankings?sector=CRYPTO&horizon=1h&limit=5`；
+   - `GET /api/v2/features/{symbol}`；
+   - `GET /api/v2/quality`。
 9. `compose.v2.yaml` 与 V1 `compose.yaml` 完全分离，使用独立 project、网络和数据卷。
 10. 已通过真实 Docker/PostgreSQL 验证：首次 migration 应用 1 个版本，第二次应用 0 个版本；worker 心跳为 `HEALTHY`；API live/ready 均为 200。
 11. 已完成 Binance 合约目录链路：
@@ -117,6 +122,16 @@
     - `rankings --as-of` 可仅依赖已落库特征重放指定五分钟时点，不访问 Binance；
     - jmk `13:45 UTC` 实算 2,864 个周期，2,860 个质量有效、1,526 个正收益，保存 8 组 40 项；
     - 同时点重放后仍为 8 组、40 项、1 条排名审计，且非正收益榜单项为 0。
+30. 已完成 MHR-6 API、Telegram 报告与可靠发送：
+    - 只读 API 只访问 PostgreSQL，不在请求路径访问 Binance；查询统一使用 3 秒超时；
+    - 报告按 TradFi/Crypto × 15m/1h/4h/24h 生成 8 组涨幅 Top N，展示四周期收益、价格、成交额和简介；
+    - Telegram 分片按 UTF-16 code units 计算，单片上限保守设置为 3,900；
+    - migration 6 新增 durable outbox 和逐 Chat/分片投递审计，接收人在入队时冻结；
+    - 确定失败按有限指数退避重试；传输结果不确定时标记 `UNKNOWN`，不自动重发以避免重复；
+    - Telegram HTTP 客户端每次投递只发起一次请求，重试权只属于 outbox；
+    - jmk 临时数据库执行 migration 1–6 及全部 PostgreSQL 集成测试通过，测试库已删除；
+    - 正式 V2 schema 已从 5 迁移到 6，重复 migration 为 applied=0；原有特征和榜单数据未改写；
+    - jmk 本机 API smoke 与正式数据 report dry-run 通过，未运行 reporter、未调用 Telegram。
 
 `backfill` 已可执行真实历史回补：
 
@@ -145,6 +160,22 @@ binance-monitor rankings --as-of 2026-08-09T13:45:00Z --env-file /absolute/path/
 
 `RANKING_TOP_N` 默认 5、最大 100。涨幅榜只保存正收益标的；质量有效数和正收益数分别记录，
 因此“市场整体下跌”和“数据缺失”不会被混为同一种情况。
+
+预览最新多周期报告，不调用 Telegram：
+
+```bash
+binance-monitor report --env-file /absolute/path/.env.v2
+```
+
+启动独立定时报表与可靠发送进程：
+
+```bash
+binance-monitor reporter --env-file /absolute/path/.env.v2
+```
+
+`reporter` 需要 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_IDS`。默认北京时间
+`0,4,8,12,16,20` 点进入 10 分钟发送窗口；同一计划时点使用数据库幂等键，仅入队一次。
+`worker` 和 `api` 不会发送 Telegram。MHR-7 影子部署前不得在正式环境常驻启动 `reporter`。
 
 ## 本地启动 V2 基础设施
 
@@ -217,7 +248,7 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 增加收益率、排名、采集完整率和最近缺口的只读 API；
-2. 为多周期涨幅榜生成 Telegram 安全分段模板；
-3. Telegram 继续只推送涨幅 Top 5，不恢复跌幅榜；
-4. 增加发送失败观测、有限重试和业务幂等测试。
+1. 将 V2 worker 和 API 作为独立服务部署到 jmk，reporter 暂不启用正式发送；
+2. 连续影子运行 24–72 小时，记录覆盖率、延迟、缺口、重启恢复和磁盘增长；
+3. 抽样核对至少 10 个 symbol × 4 个周期与 Binance 已完成 K 线；
+4. 演练代理中断、数据库重启和 outbox 恢复，再单独决定何时启用测试 Chat ID。
