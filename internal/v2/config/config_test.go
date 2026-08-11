@@ -28,11 +28,13 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("WS_RECONNECT_WAIT_SECONDS", "6")
 	t.Setenv("MARKET_WINDOW_RETENTION_MINUTES", "420")
 	t.Setenv("SNAPSHOT_MAX_EVENT_AGE_SECONDS", "75")
+	t.Setenv("SNAPSHOT_MINIMUM_RATIO_PERCENT", "92")
 	t.Setenv("BACKFILL_LOOKBACK_HOURS", "36")
 	t.Setenv("BACKFILL_CONCURRENCY", "12")
 	t.Setenv("FEATURE_CURRENT_MAX_AGE_SECONDS", "240")
 	t.Setenv("FEATURE_BASELINE_MAX_OFFSET_SECONDS", "180")
 	t.Setenv("FEATURE_MINIMUM_QUALITY_SCORE", "80")
+	t.Setenv("FEATURE_MINIMUM_COVERAGE_PERCENT", "91")
 	t.Setenv("FEATURE_CALCULATION_DELAY_SECONDS", "7")
 	t.Setenv("RANKING_TOP_N", "8")
 	t.Setenv("TELEGRAM_BOT_TOKEN", "test-token")
@@ -68,17 +70,17 @@ func TestFromEnv(t *testing.T) {
 	if settings.WSStaleAfter != 40*time.Second || settings.WSRotateAfter != 20*time.Hour || settings.WSReconnectWait != 6*time.Second {
 		t.Errorf("websocket settings = %s/%s/%s", settings.WSStaleAfter, settings.WSRotateAfter, settings.WSReconnectWait)
 	}
-	if settings.MarketWindow != 7*time.Hour || settings.SnapshotMaxAge != 75*time.Second {
-		t.Errorf("snapshot settings = %s/%s", settings.MarketWindow, settings.SnapshotMaxAge)
+	if settings.MarketWindow != 7*time.Hour || settings.SnapshotMaxAge != 75*time.Second || settings.SnapshotMinimumRatio != 92 {
+		t.Errorf("snapshot settings = %s/%s/%d", settings.MarketWindow, settings.SnapshotMaxAge, settings.SnapshotMinimumRatio)
 	}
 	if settings.BackfillLookback != 36*time.Hour || settings.BackfillConcurrency != 12 {
 		t.Errorf("backfill settings = %s/%d", settings.BackfillLookback, settings.BackfillConcurrency)
 	}
 	if settings.FeatureCurrentMaxAge != 4*time.Minute || settings.FeatureBaselineMaxOffset != 3*time.Minute ||
-		settings.FeatureMinimumQuality != 80 || settings.FeatureCalculationDelay != 7*time.Second {
-		t.Errorf("feature settings = %s/%s/%d/%s",
+		settings.FeatureMinimumQuality != 80 || settings.FeatureMinimumCoverage != 91 || settings.FeatureCalculationDelay != 7*time.Second {
+		t.Errorf("feature settings = %s/%s/%d/%d/%s",
 			settings.FeatureCurrentMaxAge, settings.FeatureBaselineMaxOffset, settings.FeatureMinimumQuality,
-			settings.FeatureCalculationDelay)
+			settings.FeatureMinimumCoverage, settings.FeatureCalculationDelay)
 	}
 	if settings.RankingTopN != 8 {
 		t.Errorf("RankingTopN = %d", settings.RankingTopN)
@@ -128,8 +130,10 @@ func TestFromEnvRejectsUnsafeFeatureSettings(t *testing.T) {
 		{key: "FEATURE_CURRENT_MAX_AGE_SECONDS", value: "901"},
 		{key: "FEATURE_BASELINE_MAX_OFFSET_SECONDS", value: "901"},
 		{key: "FEATURE_MINIMUM_QUALITY_SCORE", value: "101"},
+		{key: "FEATURE_MINIMUM_COVERAGE_PERCENT", value: "101"},
 		{key: "FEATURE_CALCULATION_DELAY_SECONDS", value: "300"},
 		{key: "RANKING_TOP_N", value: "101"},
+		{key: "SNAPSHOT_MINIMUM_RATIO_PERCENT", value: "101"},
 		{key: "REPORT_GRACE_MINUTES", value: "60"},
 		{key: "REPORTER_POLL_SECONDS", value: "61"},
 		{key: "TELEGRAM_MAX_ATTEMPTS", value: "11"},

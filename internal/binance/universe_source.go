@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"sort"
+	"time"
 
 	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/model"
@@ -24,6 +25,10 @@ func (c *Client) FetchActiveInstruments(
 		if contract.Board == model.BoardTradFi {
 			sector = market.SectorTradFi
 		}
+		var onboardTime time.Time
+		if contract.OnboardDateMS > 0 {
+			onboardTime = time.UnixMilli(contract.OnboardDateMS).UTC()
+		}
 		result = append(result, market.Instrument{
 			Symbol:             contract.Symbol,
 			BaseAsset:          contract.BaseAsset,
@@ -34,6 +39,7 @@ func (c *Client) FetchActiveInstruments(
 			QuantityPrecision:  contract.QuantityPrecision,
 			UnderlyingType:     contract.UnderlyingType,
 			UnderlyingSubTypes: append([]string(nil), contract.UnderlyingSubTypes...),
+			OnboardTime:        onboardTime,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Symbol < result[j].Symbol })

@@ -34,6 +34,20 @@ func BuildPlan(
 	symbols []string,
 	existing map[string][]time.Time,
 ) (Plan, error) {
+	return BuildPlanWithAvailability(now, lookback, interval, symbols, existing, nil)
+}
+
+// BuildPlanWithAvailability excludes candles before each contract's Binance
+// onboard time. The onboard time is floored to the exchange's candle grid
+// because Binance may open a partial first candle within that interval.
+func BuildPlanWithAvailability(
+	now time.Time,
+	lookback time.Duration,
+	interval market.KlineInterval,
+	symbols []string,
+	existing map[string][]time.Time,
+	availableFrom map[string]time.Time,
+) (Plan, error) {
 	duration, err := interval.Duration()
 	if err != nil {
 		return Plan{}, err
@@ -47,18 +61,24 @@ func BuildPlan(
 	}
 	windowEnd := now.UTC().Truncate(duration)
 	windowStart := windowEnd.Add(-lookback)
-	perSymbol := int(lookback / duration)
 	plan := Plan{
 		WindowStart: windowStart,
 		WindowEnd:   windowEnd,
-		Expected:    len(normalized) * perSymbol,
 	}
 
 	for _, symbol := range normalized {
+		symbolStart := windowStart
+		if available := availableFrom[symbol]; !available.IsZero() && available.After(windowStart) {
+			symbolStart = available.UTC().Truncate(duration)
+			if symbolStart.After(windowEnd) {
+				symbolStart = windowEnd
+			}
+		}
+		plan.Expected += int(windowEnd.Sub(symbolStart) / duration)
 		present := make(map[int64]struct{}, len(existing[symbol]))
 		for _, openTime := range existing[symbol] {
 			openTime = openTime.UTC()
-			if openTime.Before(windowStart) || !openTime.Before(windowEnd) {
+			if openTime.Before(symbolStart) || !openTime.Before(windowEnd) {
 				continue
 			}
 			if !openTime.Equal(openTime.Truncate(duration)) {
@@ -68,7 +88,7 @@ func BuildPlan(
 		}
 		plan.Present += len(present)
 		var current *Gap
-		for openTime := windowStart; openTime.Before(windowEnd); openTime = openTime.Add(duration) {
+		for openTime := symbolStart; openTime.Before(windowEnd); openTime = openTime.Add(duration) {
 			if _, ok := present[openTime.UnixMilli()]; ok {
 				if current != nil {
 					plan.Gaps = append(plan.Gaps, *current)

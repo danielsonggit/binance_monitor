@@ -13,9 +13,20 @@ import (
 )
 
 type memoryRepository struct {
-	mu       sync.Mutex
-	symbols  []string
-	existing map[string]map[int64]struct{}
+	mu        sync.Mutex
+	symbols   []string
+	existing  map[string]map[int64]struct{}
+	available map[string]time.Time
+}
+
+func (m *memoryRepository) AvailableFrom(_ context.Context, symbols []string) (map[string]time.Time, error) {
+	result := make(map[string]time.Time, len(symbols))
+	for _, symbol := range symbols {
+		if value := m.available[symbol]; !value.IsZero() {
+			result[symbol] = value
+		}
+	}
+	return result, nil
 }
 
 func (m *memoryRepository) ActiveSymbols(context.Context) ([]string, error) {
@@ -111,6 +122,27 @@ func TestServiceFallsBackToRESTOnlyWhenArchiveMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.ArchiveDays != 0 || result.RESTRequests != 2 || result.Remaining != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestServiceDoesNotBackfillBeforeContractOnboardTime(t *testing.T) {
+	now := time.Date(2026, 8, 11, 3, 0, 0, 0, time.UTC)
+	repository := &memoryRepository{
+		symbols:   []string{"NEWUSDT"},
+		existing:  make(map[string]map[int64]struct{}),
+		available: map[string]time.Time{"NEWUSDT": now.Add(-55 * time.Minute)},
+	}
+	rest := &fakeREST{}
+	service, err := NewService(repository, fakeArchive{}, rest, fixedClock{now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Run(context.Background(), 30*time.Hour, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Expected != 4 || result.Written != 4 || result.Remaining != 0 || result.RESTRequests != 1 {
 		t.Fatalf("result = %#v", result)
 	}
 }

@@ -304,6 +304,7 @@ func runWorker(
 		settings.MarketWindow,
 		settings.SnapshotMaxAge,
 		market.SnapshotInterval,
+		settings.SnapshotMinimumRatio,
 		logger,
 	)
 	if err != nil {
@@ -325,6 +326,7 @@ func runWorker(
 		returnPipeline,
 		market.SnapshotInterval,
 		settings.FeatureCalculationDelay,
+		settings.FeatureMinimumCoverage,
 		logger,
 	)
 	if err != nil {

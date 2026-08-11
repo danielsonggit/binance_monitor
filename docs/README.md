@@ -19,7 +19,7 @@
 3. Telegram 暂不推送“跌幅 Top 5”，但系统仍采集负收益数据，用于风险判断和信号失效检测。
 4. 使用 PostgreSQL 保存历史行情、信号和评估结果；V2 首期不引入 Redis、Kafka 或自动交易。
 5. Go 代码采用模块化单体、多个运行角色；Binance REST 保留自有轻量客户端，WebSocket 使用官方 Go SDK 并封装在适配层后面。
-6. jmk 上的 V1 保持运行，V2 使用独立容器和数据卷；V2 的 Binance 与 Telegram 流量仅通过 `127.0.0.1:7890`，不占用 `7891`。
+6. jmk 上的 V1 保持运行；V2 PostgreSQL 使用独立 Docker 卷，worker/API 使用独立 user-systemd 单元。V2 出网仅通过 `127.0.0.1:7890`，不占用 `7891`。
 
 多周期 Top 5 的需求、实现状态和验收证据以专项执行台账为准。
 

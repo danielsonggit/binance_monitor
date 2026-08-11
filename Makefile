@@ -1,4 +1,4 @@
-.PHONY: build test vet check run dry-run v2-config v2-up v2-logs v2-down
+.PHONY: build test vet check run dry-run v2-config v2-up v2-app-up v2-logs v2-down
 
 GOCACHE ?= /tmp/binance-monitor-go-cache
 
@@ -24,7 +24,10 @@ v2-config:
 	docker compose --env-file .env.v2 -p binance-radar-v2 -f compose.v2.yaml config
 
 v2-up:
-	docker compose --env-file .env.v2 -p binance-radar-v2 -f compose.v2.yaml up -d --build
+	docker compose --env-file .env.v2 -p binance-radar-v2 -f compose.v2.yaml up -d postgres
+
+v2-app-up:
+	docker compose --env-file .env.v2 -p binance-radar-v2 -f compose.v2.yaml --profile docker-app up -d --build
 
 v2-logs:
 	docker compose --env-file .env.v2 -p binance-radar-v2 -f compose.v2.yaml logs -f worker api

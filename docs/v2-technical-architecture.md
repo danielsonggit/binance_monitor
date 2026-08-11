@@ -3,11 +3,11 @@
 ## 1. 架构原则
 
 1. **模块化单体优先**：一个 Go 仓库、一个版本，按运行角色拆成 `worker`、`api`、`migrate`、`backfill`，避免单机项目过早微服务化。
-2. **采集与查询隔离**：jmk 上用不同容器运行 worker 和 API；二者共享 PostgreSQL，但有独立连接池和资源限制。
+2. **采集与查询隔离**：jmk 上用不同 user-systemd 单元运行 worker 和 API；二者共享 Docker PostgreSQL，但有独立连接池和 systemd 资源限制。
 3. **PostgreSQL 是唯一事实来源**：首期不引入 Redis 或消息队列。内存缓存可以丢失，持久状态必须可从 PostgreSQL 恢复。
 4. **官方 WS、自有 REST**：Binance REST 继续使用项目现有轻量客户端；WebSocket 使用 Binance 官方 Go SDK并封装适配层，业务代码不直接依赖 SDK 类型。
 5. **数据质量先于信号**：事件时间、接收时间、新鲜度、缺口与规则版本是一等数据。
-6. **V1/V2 并行迁移**：不原地替换当前 jmk V1。V2 使用独立容器、端口、数据库和数据卷，影子运行通过后再决定是否停 V1。
+6. **V1/V2 并行迁移**：不原地替换当前 jmk V1。V2 使用独立 systemd 单元、端口、数据库和数据卷，影子运行通过后再决定是否停 V1。
 
 ## 2. 总体技术架构图
 
@@ -20,8 +20,8 @@ flowchart TB
         PUBDATA[Binance Public Data]
     end
 
-    subgraph JMK[jmk 单机 Docker Compose]
-        subgraph WORKER[V2 Worker 容器]
+    subgraph JMK[jmk 单机混合部署]
+        subgraph WORKER[V2 Worker user-systemd]
             UNIVERSE[Universe Sync]
             WSADAPTER[WebSocket Adapter]
             RESTCLIENT[REST Client]
@@ -31,10 +31,9 @@ flowchart TB
             FEATURE[Feature Engine]
             SIGNAL[Signal State Machine]
             EVALUATOR[Outcome Evaluator]
-            REPORTER[Digest and Notification Outbox]
         end
 
-        subgraph API[V2 API 容器]
+        subgraph API[V2 API user-systemd]
             HTTPAPI[Read-only HTTP API]
             WEBUI[Embedded Web UI]
             HEALTH[Health and Metrics]
@@ -48,6 +47,7 @@ flowchart TB
         end
 
         PROXY7890[Clash HTTP Proxy 127.0.0.1:7890]
+        REPORTER[V2 Reporter 独立角色 MHR-7 禁用]
         BACKUP[本地备份目录]
     end
 
@@ -85,17 +85,19 @@ flowchart TB
     DB --> BACKUP
 ```
 
-图中的箭头表达逻辑数据流。由于 Clash 在宿主机上监听，容器访问宿主机代理时需要使用
-实际可达的 host gateway 地址；配置值仍统一为 `HTTP_PROXY_URL`，不能在代码中写死
-`127.0.0.1`。部署时应验证容器内代理地址确实指向 jmk 宿主机的 7890。
+图中的箭头表达逻辑数据流。jmk 的 Clash 仅监听宿主机 loopback，因此 MHR-7 使用
+user-systemd 直接运行静态 Go 二进制，部署运行器把 `HTTP_PROXY_URL` 固定为
+`http://127.0.0.1:7890`。PostgreSQL 容器只向宿主机 `127.0.0.1:54329` 发布端口；
+API 只监听 `127.0.0.1:18080`。不修改 Clash 的 LAN 暴露范围，也不使用 7891。
 
 ## 3. 运行角色与代码边界
 
 建议将入口统一为一个二进制：
 
 ```text
-binance-monitor worker     # 目录、采集、特征、信号、评估、通知
+binance-monitor worker     # 目录、采集、特征、排名和后台分析
 binance-monitor api        # 只读 API、Web UI、健康检查
+binance-monitor reporter   # 独立 Telegram 调度与 outbox dispatcher
 binance-monitor migrate    # 数据库迁移，只执行后退出
 binance-monitor backfill   # 可恢复的历史 K 线回补
 binance-monitor v1 ...     # 迁移期保留现有 V1 行为，或继续使用旧镜像
@@ -304,15 +306,15 @@ Linux Docker 的 `host.docker.internal` 需要在 Compose 中映射 `host-gatewa
 ```mermaid
 flowchart LR
     subgraph EXISTING[现有生产路径]
-        V1[V1 Reporter 容器]
+        V1[V1 Reporter user-systemd]
         V1STATE[(V1 独立状态卷)]
     end
 
     subgraph V2STACK[V2 Shadow Stack]
         MIGRATE[V2 Migrate 一次性任务]
-        WORKER[V2 Worker]
-        API[V2 API and Web]
-        PG[(V2 PostgreSQL 数据卷)]
+        WORKER[V2 Worker user-systemd]
+        API[V2 API user-systemd]
+        PG[(V2 PostgreSQL Docker 卷)]
         PGBACKUP[(V2 备份目录)]
     end
 
@@ -333,8 +335,8 @@ flowchart LR
 迁移顺序：
 
 1. 保持 V1 原镜像、`.env`、状态卷和 Telegram 行为不变。
-2. V2 使用独立 Compose project name、容器名、端口、`.env` 和数据卷。
-3. 先启动 PostgreSQL 和 migrate，再启动 V2 worker 的 shadow 模式；shadow 模式生成信号但不发送事件通知。
+2. V2 PostgreSQL 使用独立 Compose project name、端口、`.env` 和数据卷；worker/API 使用独立 user-systemd 单元。
+3. 先启动 PostgreSQL 和 migrate，再启动 V2 worker 的 shadow 模式；不安装 reporter unit，不发送 Telegram。
 4. 验证代理、WS 重连、数据完整率、数据库增长和回补。
 5. 启动仅内网可达的 API/Web。
 6. 至少 7 天后先启用测试 Chat ID，再启用正式事件通知。

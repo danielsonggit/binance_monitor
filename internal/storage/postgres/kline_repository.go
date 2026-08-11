@@ -47,6 +47,45 @@ func (r *KlineRepository) ActiveSymbols(ctx context.Context) ([]string, error) {
 	return result, nil
 }
 
+// AvailableFrom returns Binance onboard timestamps captured in instrument
+// metadata. Missing values intentionally retain the full configured lookback
+// for contracts first discovered before this field was introduced.
+func (r *KlineRepository) AvailableFrom(
+	ctx context.Context,
+	symbols []string,
+) (map[string]time.Time, error) {
+	if r == nil || r.pool == nil {
+		return nil, fmt.Errorf("K 线 PostgreSQL pool 不能为空")
+	}
+	if len(symbols) == 0 {
+		return map[string]time.Time{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT symbol, (metadata->>'onboard_at')::timestamptz
+		FROM instruments
+		WHERE valid_to IS NULL
+			AND symbol = ANY($1)
+			AND metadata ? 'onboard_at'
+		ORDER BY symbol`, symbols)
+	if err != nil {
+		return nil, fmt.Errorf("查询合约上市时间: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]time.Time, len(symbols))
+	for rows.Next() {
+		var symbol string
+		var onboardAt time.Time
+		if err := rows.Scan(&symbol, &onboardAt); err != nil {
+			return nil, fmt.Errorf("读取合约上市时间: %w", err)
+		}
+		result[symbol] = onboardAt.UTC()
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历合约上市时间: %w", err)
+	}
+	return result, nil
+}
+
 func (r *KlineRepository) ExistingOpenTimes(
 	ctx context.Context,
 	symbols []string,

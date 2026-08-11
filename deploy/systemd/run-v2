@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+umask 077
+
+role=${1:-}
+case "$role" in
+    worker|api) ;;
+    *)
+        echo "usage: run-v2 worker|api" >&2
+        exit 2
+        ;;
+esac
+
+service_dir=${BINANCE_RADAR_V2_DIR:-/home/daniel/services/binance-radar-v2}
+env_file=${V2_ENV_FILE:-${service_dir}/.env.v2}
+binary=${V2_BINARY:-${service_dir}/binance-monitor-v2}
+
+if [ ! -r "$env_file" ] || [ ! -x "$binary" ]; then
+    echo "V2 env file or binary is unavailable" >&2
+    exit 1
+fi
+
+set -a
+. "$env_file"
+set +a
+
+: "${POSTGRES_DB:?POSTGRES_DB is required}"
+: "${POSTGRES_USER:?POSTGRES_USER is required}"
+: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+
+postgres_port=${V2_POSTGRES_PORT:-54329}
+export DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${postgres_port}/${POSTGRES_DB}?sslmode=disable"
+
+# jmk 上的 mihomo 只监听宿主机 loopback。固定使用 7890，明确禁止
+# V2 影子服务意外使用另一个程序专用的 7891。
+export HTTP_PROXY_URL=http://127.0.0.1:7890
+
+if [ "$role" = api ]; then
+    export WEB_LISTEN_ADDR=${V2_SYSTEMD_API_LISTEN_ADDR:-127.0.0.1:18080}
+fi
+
+exec "$binary" "$role" --env-file "$env_file"

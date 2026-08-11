@@ -17,6 +17,7 @@ type Contract struct {
 	Board              Board
 	PricePrecision     int
 	QuantityPrecision  int
+	OnboardDateMS      int64
 }
 
 type Ticker struct {

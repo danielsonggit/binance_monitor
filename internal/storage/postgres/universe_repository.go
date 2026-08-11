@@ -304,10 +304,14 @@ func closeInstrument(ctx context.Context, transaction pgx.Tx, id int64, observed
 }
 
 func instrumentMetadata(instrument market.Instrument) ([]byte, error) {
-	encoded, err := json.Marshal(map[string]any{
+	metadata := map[string]any{
 		"underlying_type":      instrument.UnderlyingType,
 		"underlying_sub_types": instrument.UnderlyingSubTypes,
-	})
+	}
+	if !instrument.OnboardTime.IsZero() {
+		metadata["onboard_at"] = instrument.OnboardTime.UTC().Format(time.RFC3339Nano)
+	}
+	encoded, err := json.Marshal(metadata)
 	if err != nil {
 		return nil, fmt.Errorf("编码 instrument %s metadata: %w", instrument.Symbol, err)
 	}

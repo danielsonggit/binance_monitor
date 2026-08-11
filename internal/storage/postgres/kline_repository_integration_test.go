@@ -38,9 +38,11 @@ func TestKlineRepositoryIdempotentUpsertIntegration(t *testing.T) {
 	}
 
 	observedAt := time.Date(2026, 8, 9, 2, 0, 0, 0, time.UTC)
+	instrument := testInstrument("BTCUSDT")
+	instrument.OnboardTime = observedAt.Add(-2 * time.Hour)
 	if _, err := NewUniverseRepository(pool).Reconcile(ctx, universe.Snapshot{
 		ObservedAt:           observedAt,
-		Instruments:          []market.Instrument{testInstrument("BTCUSDT")},
+		Instruments:          []market.Instrument{instrument},
 		MissingConfirmations: 2,
 	}); err != nil {
 		t.Fatal(err)
@@ -91,6 +93,13 @@ func TestKlineRepositoryIdempotentUpsertIntegration(t *testing.T) {
 	}
 	if len(symbols) != 1 || symbols[0] != "BTCUSDT" {
 		t.Fatalf("active symbols = %#v", symbols)
+	}
+	availableFrom, err := repository.AvailableFrom(ctx, symbols)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !availableFrom["BTCUSDT"].Equal(instrument.OnboardTime) {
+		t.Fatalf("available from = %#v", availableFrom)
 	}
 	coverage, err := repository.ExistingOpenTimes(
 		ctx,

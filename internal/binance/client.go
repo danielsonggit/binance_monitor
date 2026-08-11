@@ -25,6 +25,7 @@ type exchangeSymbol struct {
 	UnderlyingSubTypes []string `json:"underlyingSubType"`
 	PricePrecision     int      `json:"pricePrecision"`
 	QuantityPrecision  int      `json:"quantityPrecision"`
+	OnboardDate        int64    `json:"onboardDate"`
 }
 
 type tickerResponse struct {
@@ -165,6 +166,7 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 			Board:              board,
 			PricePrecision:     row.PricePrecision,
 			QuantityPrecision:  row.QuantityPrecision,
+			OnboardDateMS:      row.OnboardDate,
 		}
 	}
 	return result

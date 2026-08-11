@@ -75,7 +75,7 @@ func TestFetchActiveInstrumentsReturnsStableDomainModels(t *testing.T) {
 	clientHTTP := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		payload := `{"symbols":[
 			{"symbol":"KORUUSDT","baseAsset":"KORU","quoteAsset":"USDT","status":"TRADING","contractType":"TRADIFI_PERPETUAL","pricePrecision":2,"quantityPrecision":1},
-			{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","contractType":"PERPETUAL","pricePrecision":1,"quantityPrecision":3}
+			{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","contractType":"PERPETUAL","pricePrecision":1,"quantityPrecision":3,"onboardDate":1786413600000}
 		]}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -90,6 +90,9 @@ func TestFetchActiveInstrumentsReturnsStableDomainModels(t *testing.T) {
 	}
 	if len(instruments) != 2 || instruments[0].Symbol != "BTCUSDT" || instruments[1].Sector != "TRADFI" {
 		t.Fatalf("instruments = %#v", instruments)
+	}
+	if instruments[0].OnboardTime.UnixMilli() != 1786413600000 {
+		t.Fatalf("onboard time = %s", instruments[0].OnboardTime)
 	}
 }
 

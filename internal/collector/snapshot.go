@@ -29,19 +29,21 @@ type SnapshotRepository interface {
 }
 
 type SnapshotCollector struct {
-	latest      LatestReader
-	windows     WindowWriter
-	repository  SnapshotRepository
-	retention   time.Duration
-	maxEventAge time.Duration
-	interval    time.Duration
-	logger      *slog.Logger
+	latest                 LatestReader
+	windows                WindowWriter
+	repository             SnapshotRepository
+	retention              time.Duration
+	maxEventAge            time.Duration
+	interval               time.Duration
+	minimumCoveragePercent int
+	logger                 *slog.Logger
 
-	mu          sync.RWMutex
-	ready       bool
-	lastPersist time.Time
-	lastError   string
-	lastMissing int
+	mu           sync.RWMutex
+	ready        bool
+	lastPersist  time.Time
+	lastError    string
+	lastExpected int
+	lastActual   int
 }
 
 func NewSnapshotCollector(
@@ -51,25 +53,28 @@ func NewSnapshotCollector(
 	retention time.Duration,
 	maxEventAge time.Duration,
 	interval time.Duration,
+	minimumCoveragePercent int,
 	logger *slog.Logger,
 ) (*SnapshotCollector, error) {
 	if latest == nil || windows == nil || repository == nil {
 		return nil, fmt.Errorf("snapshot collector 依赖不能为空")
 	}
-	if retention < interval || maxEventAge <= 0 || interval <= 0 {
+	if retention < interval || maxEventAge <= 0 || interval <= 0 ||
+		minimumCoveragePercent <= 0 || minimumCoveragePercent > 100 {
 		return nil, fmt.Errorf("snapshot collector 时间配置无效")
 	}
 	if time.Hour%interval != 0 || interval%time.Minute != 0 {
 		return nil, fmt.Errorf("snapshot interval 必须是能够整除一小时的整分钟")
 	}
 	return &SnapshotCollector{
-		latest:      latest,
-		windows:     windows,
-		repository:  repository,
-		retention:   retention,
-		maxEventAge: maxEventAge,
-		interval:    interval,
-		logger:      logger,
+		latest:                 latest,
+		windows:                windows,
+		repository:             repository,
+		retention:              retention,
+		maxEventAge:            maxEventAge,
+		interval:               interval,
+		minimumCoveragePercent: minimumCoveragePercent,
+		logger:                 logger,
 	}, nil
 }
 
@@ -169,7 +174,19 @@ func (c *SnapshotCollector) Collect(ctx context.Context, boundary time.Time) err
 func (c *SnapshotCollector) Health() (bool, time.Time, string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ready && c.lastError == "" && c.lastMissing == 0, c.lastPersist, c.lastError
+	if !c.ready || c.lastError != "" {
+		return false, c.lastPersist, c.lastError
+	}
+	if c.lastPersist.IsZero() || c.lastExpected <= 0 {
+		return false, c.lastPersist, "尚未完成 5 分钟快照"
+	}
+	if c.lastActual*100 < c.lastExpected*c.minimumCoveragePercent {
+		return false, c.lastPersist, fmt.Sprintf(
+			"5 分钟快照覆盖不足 %d/%d，最低要求 %d%%",
+			c.lastActual, c.lastExpected, c.minimumCoveragePercent,
+		)
+	}
+	return true, c.lastPersist, ""
 }
 
 func (c *SnapshotCollector) initialize(ctx context.Context, now time.Time) {
@@ -206,12 +223,9 @@ func (c *SnapshotCollector) setResult(observedAt time.Time, result market.Snapsh
 	defer c.mu.Unlock()
 	c.ready = true
 	c.lastPersist = observedAt
-	c.lastMissing = result.Missing
-	if result.Missing > 0 {
-		c.lastError = fmt.Sprintf("5 分钟快照缺失 %d/%d 个合约", result.Missing, result.Expected)
-	} else {
-		c.lastError = ""
-	}
+	c.lastExpected = result.Expected
+	c.lastActual = result.Actual
+	c.lastError = ""
 }
 
 func qualityScore(age, maxAge time.Duration) int16 {

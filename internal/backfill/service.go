@@ -13,6 +13,7 @@ import (
 
 type Repository interface {
 	ActiveSymbols(context.Context) ([]string, error)
+	AvailableFrom(context.Context, []string) (map[string]time.Time, error)
 	ExistingOpenTimes(context.Context, []string, time.Time, time.Time) (map[string][]time.Time, error)
 	Save(context.Context, market.KlineBatch) (market.KlineWriteResult, error)
 }
@@ -83,7 +84,13 @@ func (s *Service) Run(ctx context.Context, lookback time.Duration, concurrency i
 	if len(symbols) == 0 {
 		return Result{}, fmt.Errorf("没有 active instruments，必须先执行 worker 同步 Binance 合约目录")
 	}
-	empty, err := BuildPlan(now, lookback, market.KlineInterval15m, symbols, nil)
+	availableFrom, err := s.repository.AvailableFrom(ctx, symbols)
+	if err != nil {
+		return Result{}, err
+	}
+	empty, err := BuildPlanWithAvailability(
+		now, lookback, market.KlineInterval15m, symbols, nil, availableFrom,
+	)
 	if err != nil {
 		return Result{}, err
 	}
@@ -91,7 +98,9 @@ func (s *Service) Run(ctx context.Context, lookback time.Duration, concurrency i
 	if err != nil {
 		return Result{}, err
 	}
-	plan, err := BuildPlan(now, lookback, market.KlineInterval15m, symbols, existing)
+	plan, err := BuildPlanWithAvailability(
+		now, lookback, market.KlineInterval15m, symbols, existing, availableFrom,
+	)
 	if err != nil {
 		return Result{}, err
 	}
@@ -116,7 +125,9 @@ func (s *Service) Run(ctx context.Context, lookback time.Duration, concurrency i
 	if err != nil {
 		return result, err
 	}
-	finalPlan, err := BuildPlan(now, lookback, market.KlineInterval15m, symbols, finalExisting)
+	finalPlan, err := BuildPlanWithAvailability(
+		now, lookback, market.KlineInterval15m, symbols, finalExisting, availableFrom,
+	)
 	if err != nil {
 		return result, err
 	}

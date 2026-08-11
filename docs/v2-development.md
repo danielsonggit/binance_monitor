@@ -9,7 +9,7 @@
 - Phase 0：产品与架构设计已完成；
 - Phase 1：数据库与采集开发项完成，连续影子验收留到 MHR-7；
 - Phase 2：多周期收益率、质量门禁和分板块排名已完成，候选信号与生命周期继续开发；
-- Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API 已完成；MHR-7 影子运行待部署；
+- Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API已完成；MHR-7 已完成超过 24 小时的 jmk 影子验收，服务继续运行以积累 7 天生产启用样本；
 - Phase 4 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
@@ -183,12 +183,21 @@ binance-monitor reporter --env-file /absolute/path/.env.v2
 cp .env.v2.example .env.v2
 ```
 
-修改 `.env.v2` 中的 URL-safe PostgreSQL 密码，然后执行：
+修改 `.env.v2` 中的 URL-safe PostgreSQL 密码后，默认只启动 PostgreSQL：
 
 ```bash
 make v2-config
 make v2-up
 ```
+
+Linux 上如需使用全 Docker 的可选应用 profile：
+
+```bash
+make v2-app-up
+```
+
+jmk 正式影子部署不使用该 profile，而使用 [user-systemd 部署说明](../deploy/systemd/README.md)，
+从而直接访问只监听宿主机 loopback 的 Clash 7890。reporter 不安装为服务。
 
 查看状态：
 
@@ -197,8 +206,8 @@ docker compose --env-file .env.v2 \
   -p binance-radar-v2 \
   -f compose.v2.yaml ps
 
-curl http://127.0.0.1:8080/health/live
-curl http://127.0.0.1:8080/health/ready
+curl http://127.0.0.1:18080/health/live
+curl http://127.0.0.1:18080/health/ready
 ```
 
 停止服务但保留数据库卷：
@@ -243,12 +252,12 @@ make v2-down
 
 Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接使用；它们本身就是稳定的通用基础能力。交易信号、生命周期和数据质量规则属于本项目核心领域，不能交给通用库黑盒处理。
 
-## 下一批开发任务
+## MHR-7 后续运行任务
 
 多周期 Top 5 的专项需求、阶段状态与验收证据统一记录在
 [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)。
 
-1. 将 V2 worker 和 API 作为独立服务部署到 jmk，reporter 暂不启用正式发送；
-2. 连续影子运行 24–72 小时，记录覆盖率、延迟、缺口、重启恢复和磁盘增长；
-3. 抽样核对至少 10 个 symbol × 4 个周期与 Binance 已完成 K 线；
-4. 演练代理中断、数据库重启和 outbox 恢复，再单独决定何时启用测试 Chat ID。
+1. MHR-7 已完成 29 小时 20 分钟、353/353 个五分钟窗口的验收；worker/API 继续常驻。
+2. 已完成 10 个 symbol × 4 个周期的 Binance 原始 K 线比对，40/40 通过。
+3. 已完成 V2 服务重启和专用 PostgreSQL 故障恢复；共享 7890 不做破坏性停机演练。
+4. 继续积累至少 7 天样本；启用任何 V2 Telegram reporter 或 Chat ID 必须由用户单独决定。

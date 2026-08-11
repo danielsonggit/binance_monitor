@@ -32,12 +32,14 @@ const (
 	defaultWSReconnectSecs           = 5
 	defaultWindowMinutes             = 360
 	defaultSnapshotMaxAge            = 90
+	defaultSnapshotMinimumRatio      = 85
 	defaultBackfillHours             = 30
 	defaultBackfillWorkers           = 8
 	maxBackfillWorkers               = 32
 	defaultFeatureCurrentAgeSeconds  = 300
 	defaultFeatureBaselineOffsetSecs = 300
 	defaultFeatureMinimumQuality     = 75
+	defaultFeatureMinimumCoverage    = 60
 	defaultFeatureDelaySeconds       = 5
 	defaultRankingTopN               = 5
 	defaultReportGraceMinutes        = 10
@@ -72,11 +74,13 @@ type Settings struct {
 	WSReconnectWait          time.Duration
 	MarketWindow             time.Duration
 	SnapshotMaxAge           time.Duration
+	SnapshotMinimumRatio     int
 	BackfillLookback         time.Duration
 	BackfillConcurrency      int
 	FeatureCurrentMaxAge     time.Duration
 	FeatureBaselineMaxOffset time.Duration
 	FeatureMinimumQuality    int16
+	FeatureMinimumCoverage   int
 	FeatureCalculationDelay  time.Duration
 	RankingTopN              int
 	TelegramBotToken         string
@@ -206,6 +210,13 @@ func FromEnv() (Settings, error) {
 	if time.Duration(snapshotMaxAgeSeconds)*time.Second >= 5*time.Minute {
 		return Settings{}, fmt.Errorf("SNAPSHOT_MAX_EVENT_AGE_SECONDS 必须小于 300")
 	}
+	snapshotMinimumRatio, err := positiveInt("SNAPSHOT_MINIMUM_RATIO_PERCENT", defaultSnapshotMinimumRatio)
+	if err != nil {
+		return Settings{}, err
+	}
+	if snapshotMinimumRatio > 100 {
+		return Settings{}, fmt.Errorf("SNAPSHOT_MINIMUM_RATIO_PERCENT 不能大于 100")
+	}
 	backfillHours, err := positiveInt("BACKFILL_LOOKBACK_HOURS", defaultBackfillHours)
 	if err != nil {
 		return Settings{}, err
@@ -240,6 +251,13 @@ func FromEnv() (Settings, error) {
 	}
 	if featureMinimumQuality > 100 {
 		return Settings{}, fmt.Errorf("FEATURE_MINIMUM_QUALITY_SCORE 不能大于 100")
+	}
+	featureMinimumCoverage, err := positiveInt("FEATURE_MINIMUM_COVERAGE_PERCENT", defaultFeatureMinimumCoverage)
+	if err != nil {
+		return Settings{}, err
+	}
+	if featureMinimumCoverage > 100 {
+		return Settings{}, fmt.Errorf("FEATURE_MINIMUM_COVERAGE_PERCENT 不能大于 100")
 	}
 	featureDelaySeconds, err := positiveInt("FEATURE_CALCULATION_DELAY_SECONDS", defaultFeatureDelaySeconds)
 	if err != nil {
@@ -312,11 +330,13 @@ func FromEnv() (Settings, error) {
 		WSReconnectWait:          time.Duration(wsReconnectSeconds) * time.Second,
 		MarketWindow:             time.Duration(windowMinutes) * time.Minute,
 		SnapshotMaxAge:           time.Duration(snapshotMaxAgeSeconds) * time.Second,
+		SnapshotMinimumRatio:     snapshotMinimumRatio,
 		BackfillLookback:         time.Duration(backfillHours) * time.Hour,
 		BackfillConcurrency:      backfillConcurrency,
 		FeatureCurrentMaxAge:     time.Duration(featureCurrentAgeSeconds) * time.Second,
 		FeatureBaselineMaxOffset: time.Duration(featureBaselineOffsetSeconds) * time.Second,
 		FeatureMinimumQuality:    int16(featureMinimumQuality),
+		FeatureMinimumCoverage:   featureMinimumCoverage,
 		FeatureCalculationDelay:  time.Duration(featureDelaySeconds) * time.Second,
 		RankingTopN:              rankingTopN,
 		TelegramBotToken:         strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),

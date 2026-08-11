@@ -13,10 +13,11 @@ type CalculateAtService interface {
 }
 
 type Runner struct {
-	service  CalculateAtService
-	interval time.Duration
-	delay    time.Duration
-	logger   *slog.Logger
+	service                CalculateAtService
+	interval               time.Duration
+	delay                  time.Duration
+	minimumCoveragePercent int
+	logger                 *slog.Logger
 
 	mu        sync.RWMutex
 	ready     bool
@@ -24,14 +25,24 @@ type Runner struct {
 	lastError string
 }
 
-func NewRunner(service CalculateAtService, interval, delay time.Duration, logger *slog.Logger) (*Runner, error) {
+func NewRunner(
+	service CalculateAtService,
+	interval time.Duration,
+	delay time.Duration,
+	minimumCoveragePercent int,
+	logger *slog.Logger,
+) (*Runner, error) {
 	if service == nil || logger == nil {
 		return nil, fmt.Errorf("analysis runner 依赖不能为空")
 	}
-	if interval <= 0 || time.Hour%interval != 0 || delay < 0 || delay >= interval {
+	if interval <= 0 || time.Hour%interval != 0 || delay < 0 || delay >= interval ||
+		minimumCoveragePercent <= 0 || minimumCoveragePercent > 100 {
 		return nil, fmt.Errorf("analysis runner interval/delay 无效")
 	}
-	return &Runner{service: service, interval: interval, delay: delay, logger: logger}, nil
+	return &Runner{
+		service: service, interval: interval, delay: delay,
+		minimumCoveragePercent: minimumCoveragePercent, logger: logger,
+	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -66,7 +77,15 @@ func (r *Runner) calculate(ctx context.Context, asOf time.Time) error {
 		r.lastError = err.Error()
 	} else {
 		r.lastRun = asOf
-		r.lastError = ""
+		totalMetrics := result.Features.ValidMetrics + result.Features.InvalidMetrics
+		if totalMetrics <= 0 || result.Features.ValidMetrics*100 < totalMetrics*r.minimumCoveragePercent {
+			r.lastError = fmt.Sprintf(
+				"多周期指标覆盖不足 %d/%d，最低要求 %d%%",
+				result.Features.ValidMetrics, totalMetrics, r.minimumCoveragePercent,
+			)
+		} else {
+			r.lastError = ""
+		}
 	}
 	r.mu.Unlock()
 	if err != nil {
@@ -84,6 +103,9 @@ func (r *Runner) calculate(ctx context.Context, asOf time.Time) error {
 		"ranking_items", result.Rankings.Items,
 		"positive_metrics", result.Rankings.Positive,
 	)
+	if healthy, _, message := r.Health(); !healthy {
+		r.logger.Warn("多周期分析质量低于健康阈值", "as_of", asOf, "reason", message)
+	}
 	return nil
 }
 

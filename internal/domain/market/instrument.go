@@ -3,6 +3,7 @@ package market
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Sector string
@@ -22,6 +23,7 @@ type Instrument struct {
 	QuantityPrecision  int
 	UnderlyingType     string
 	UnderlyingSubTypes []string
+	OnboardTime        time.Time
 }
 
 func (i Instrument) Validate() error {

@@ -97,10 +97,25 @@ func TestSnapshotCollectorHealthDegradesOnMissingSymbols(t *testing.T) {
 	}
 }
 
+func TestSnapshotCollectorHealthAcceptsConfiguredCoverage(t *testing.T) {
+	boundary := time.Date(2026, 8, 2, 12, 5, 0, 0, time.UTC)
+	repository := &recordingSnapshots{result: market.SnapshotWriteResult{Expected: 10, Actual: 9, Missing: 1, Status: "DEGRADED"}}
+	collector := newTestCollector(t, staticLatest{
+		"BTCUSDT": ticker("BTCUSDT", boundary, "101", "100"),
+	}, marketdata.NewWindowStore(2*time.Hour), repository)
+	if err := collector.Collect(context.Background(), boundary); err != nil {
+		t.Fatal(err)
+	}
+	healthy, persistedAt, message := collector.Health()
+	if !healthy || !persistedAt.Equal(boundary) || message != "" {
+		t.Fatalf("health = %v, %s, %q", healthy, persistedAt, message)
+	}
+}
+
 func newTestCollector(t *testing.T, latest LatestReader, windows WindowWriter, repository SnapshotRepository) *SnapshotCollector {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	result, err := NewSnapshotCollector(latest, windows, repository, 2*time.Hour, 90*time.Second, 5*time.Minute, logger)
+	result, err := NewSnapshotCollector(latest, windows, repository, 2*time.Hour, 90*time.Second, 5*time.Minute, 90, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

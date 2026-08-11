@@ -44,6 +44,26 @@ func TestBuildPlanMergesContiguousMissingCandles(t *testing.T) {
 	}
 }
 
+func TestBuildPlanExcludesCandlesBeforeContractOnboardTime(t *testing.T) {
+	now := time.Date(2026, 8, 11, 3, 0, 0, 0, time.UTC)
+	plan, err := BuildPlanWithAvailability(
+		now,
+		30*time.Hour,
+		market.KlineInterval15m,
+		[]string{"NEWUSDT"},
+		nil,
+		map[string]time.Time{"NEWUSDT": time.Date(2026, 8, 11, 2, 5, 0, 0, time.UTC)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStart := time.Date(2026, 8, 11, 2, 0, 0, 0, time.UTC)
+	if plan.Expected != 4 || len(plan.Gaps) != 1 || plan.Gaps[0].Count != 4 ||
+		!plan.Gaps[0].Start.Equal(wantStart) || !plan.Gaps[0].End.Equal(now) {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestBuildPlanRejectsInvalidInputsAndUnalignedStoredTime(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	if _, err := BuildPlan(now, 10*time.Minute, market.KlineInterval15m, []string{"BTCUSDT"}, nil); err == nil {
