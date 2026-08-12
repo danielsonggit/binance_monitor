@@ -11,6 +11,7 @@
 - [执行计划](./v2-execution-plan.md)
 - [开发进度与运行方式](./v2-development.md)
 - [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)
+- [MHR-8：V2 独立健康监控与故障通知](./v2-watchdog-plan.md)
 
 ## 当前决策摘要
 

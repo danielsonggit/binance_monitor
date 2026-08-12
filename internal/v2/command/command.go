@@ -51,6 +51,7 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newRankingsCommand(stdout, stderr),
 		newDatabaseCommand("report", "预览最新 V2 多周期 Telegram 报告，不发送", stdout, stderr, runReport),
 		newDatabaseCommand("reporter", "运行 V2 Telegram 定时报表与可靠发送器", stdout, stderr, runReporter),
+		newWatchdogCommand(stdout, stderr),
 	}
 }
 

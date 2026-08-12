@@ -5,12 +5,13 @@ umask 077
 
 role=${1:-}
 case "$role" in
-    worker|api) ;;
+    worker|api|watchdog) ;;
     *)
-        echo "usage: run-v2 worker|api" >&2
+        echo "usage: run-v2 worker|api|watchdog" >&2
         exit 2
         ;;
 esac
+shift
 
 service_dir=${BINANCE_RADAR_V2_DIR:-/home/daniel/services/binance-radar-v2}
 env_file=${V2_ENV_FILE:-${service_dir}/.env.v2}
@@ -24,6 +25,15 @@ fi
 set -a
 . "$env_file"
 set +a
+
+if [ "$role" = watchdog ]; then
+    watchdog_env=${WATCHDOG_ENV_FILE:-${service_dir}/watchdog.env}
+    if [ -r "$watchdog_env" ]; then
+        set -a
+        . "$watchdog_env"
+        set +a
+    fi
+fi
 
 : "${POSTGRES_DB:?POSTGRES_DB is required}"
 : "${POSTGRES_USER:?POSTGRES_USER is required}"
@@ -40,4 +50,4 @@ if [ "$role" = api ]; then
     export WEB_LISTEN_ADDR=${V2_SYSTEMD_API_LISTEN_ADDR:-127.0.0.1:18080}
 fi
 
-exec "$binary" "$role" --env-file "$env_file"
+exec "$binary" "$role" --env-file "$env_file" "$@"

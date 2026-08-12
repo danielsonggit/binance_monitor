@@ -261,3 +261,12 @@ Go 标准库的 `context`、`net/http`、`time`、`encoding/json` 仍然直接�
 2. 已完成 10 个 symbol × 4 个周期的 Binance 原始 K 线比对，40/40 通过。
 3. 已完成 V2 服务重启和专用 PostgreSQL 故障恢复；共享 7890 不做破坏性停机演练。
 4. 继续积累至少 7 天样本；启用任何 V2 Telegram reporter 或 Chat ID 必须由用户单独决定。
+
+## MHR-8 独立健康监控
+
+- `binance-monitor watchdog` 每分钟检查 V2 API、数据库 readiness、worker heartbeat、行情、
+  snapshot、analysis 和 backfill；默认 3 次失败告警、2 次健康恢复。
+- incident 状态与 Telegram 告警去重保存到 jmk 本地 `0600` 文件，不依赖 PostgreSQL。
+- jmk 已安装 `binance-radar-v2-watchdog.service`，通过 dry-run 故障/恢复演练和真实 Telegram
+  通道测试后切换为 live；V2 市场报表 reporter 仍禁用。
+- 整机离线或 7890 同时阻断 Telegram 时无法即时自报，未来需要在另一台机器增加外部监控。

@@ -1,0 +1,2 @@
+[Service]
+Environment=WATCHDOG_DRY_RUN=false
