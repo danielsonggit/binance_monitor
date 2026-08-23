@@ -2,13 +2,14 @@
 
 > 本文档是 MHR-9 的唯一执行台账。需求、设计决定、GitHub 参考项目、阶段状态、
 > 验收证据和遗留风险均在此维护。任何阶段没有证据时不得标记为完成。
+> 本台账从属于 [总体产品与开发 Roadmap](./v2-roadmap.md)，不单独改变总体产品方向或阶段顺序。
 
 ## 1. 文档信息
 
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | IN_PROGRESS |
-| 当前阶段 | MHR-9-1 已完成；下一阶段 MHR-9-2 待开始 |
+| 当前阶段 | MHR-9-1 代码完成，待 jmk 部署与 24 小时验收；MHR-9-2 尚未开始 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-20 |
@@ -116,7 +117,7 @@ MHR-9 将榜单升级为可解释、可重放、有生命周期的信号系统�
 - 单元测试、PostgreSQL 集成测试、`go test ./...`、`go vet ./...` 和目标包 race 通过。
 
 MHR-9-1 明确不采集 OI、funding、mark price 或 taker 数据，不实现评分、信号生命周期和
-Telegram 投资信号；这些分别属于后续 MHR-9-2 至 MHR-9-6。
+Telegram 投资信号；这些分别属于后续 MHR-9-2 至 MHR-9-7。
 
 ## 7. 候选池
 
@@ -257,18 +258,19 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 
 ## 14. 分阶段执行计划
 
-状态只允许 `PENDING`、`IN_PROGRESS`、`BLOCKED`、`COMPLETED`。
+状态只允许 `PENDING`、`IN_PROGRESS`、`CODE_COMPLETE`、`BLOCKED`、`COMPLETED`。
 
 | ID | 阶段 | 状态 | 完成标准 | 预计工作量 |
 | --- | --- | --- | --- | --- |
 | MHR-9-0 | 台账与开源项目评估 | COMPLETED | 文档进入索引；范围、参考模式和许可证决定明确 | 0.5 天 |
-| MHR-9-1 | 市场时段与质量语义 | COMPLETED | raw/session coverage 并存；休市不误报；未知状态禁止信号 | 1–1.5 天 |
+| MHR-9-1 | 市场时段与质量语义 | CODE_COMPLETE | raw/session coverage 并存；休市不误报；未知状态禁止信号；仍需 jmk 部署验收 | 1–1.5 天 |
 | MHR-9-2 | 候选池与深度数据采集 | PENDING | 候选幂等；OI/funding/mark/taker 限速采集和审计通过 | 2–3 天 |
 | MHR-9-3 | 深度特征与可解释评分 | PENDING | 子分数、证据、质量上限和规则版本可重放 | 1–2 天 |
 | MHR-9-4 | 生命周期与 PostgreSQL 持久化 | PENDING | 唯一活动生命周期；并发/重启/重复执行安全 | 1.5–2 天 |
 | MHR-9-5 | Replay 与只读 API | PENDING | 固定输入结果确定；活动/历史/详情 API 可查 | 1–1.5 天 |
-| MHR-9-6 | Telegram dry-run 与测试群 | PENDING | 状态通知无重复；正式 Chat ID 保持禁用 | 0.5–1 天 |
-| MHR-9-7 | jmk 影子验收 | PENDING | 连续 24–48 小时；数据、状态、通知和 V1 隔离达标 | 1–2 天观察期 |
+| MHR-9-6 | 结果评估与影子样本 | PENDING | T+收益、MFE、MAE 到期计算幂等；规则效果按版本可查 | 1–2 天开发 + 样本积累 |
+| MHR-9-7 | Telegram dry-run 与测试群 | PENDING | 状态通知无重复；正式 Chat ID 保持禁用 | 0.5–1 天 |
+| MHR-9-8 | jmk 影子验收 | PENDING | 连续 24–48 小时；数据、状态、通知和 V1 隔离达标 | 1–2 天观察期 |
 
 预计开发工作量为 7–11 个开发日，另加 24–48 小时影子观察。估时不是完成证据。
 
@@ -300,7 +302,7 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 
 ## 17. 用户待确认参数
 
-这些参数不阻塞 MHR-9-1，但必须在 MHR-9-6 前确认：
+这些参数不阻塞 MHR-9-1，但必须在 MHR-9-7 前确认：
 
 1. 测试 Chat ID 是否与正式群分开；默认：分开。
 2. 每日投资信号通知上限；默认：10 条。
@@ -334,7 +336,7 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 - 先审计现有 snapshot collection run、quality API、worker heartbeat、watchdog 和 PostgreSQL
   migration/repository 边界，再实现领域模型，避免把交易时段判断耦合进 Binance 或 HTTP 层。
 
-### 2026-08-22 — MHR-9-1 完成
+### 2026-08-22 — MHR-9-1 代码完成
 
 - 新增 `binance-usdm-availability-v1` 规则和可替换 `AvailabilityRule` 端口，状态包括
   `OPEN`、`MARKET_CLOSED`、`LOW_ACTIVITY`、`DATA_MISSING`、`SOURCE_UNAVAILABLE`、`UNKNOWN`。
@@ -356,4 +358,5 @@ internal/v2/reporter          测试通知与 outbox dispatcher
   - 核心包 `go test -race -count=1`：全部通过；
   - jmk 临时隔离库 `binance_radar_mhr9_test`：13 组 PostgreSQL migration/repository 集成测试全部通过；
   - 测试后已删除临时数据库和测试二进制，未迁移、重启或修改线上 V2/V1 服务。
-- 下一步为 MHR-9-2：实现候选池、候选延续策略，以及 OI/funding/mark/taker 的分层限速采集。
+- 当前唯一下一步为 jmk 部署 migration 7 与 24 小时质量观察；通过后才进入 MHR-9-2，
+  实现候选池、候选延续策略，以及 OI/funding/mark/taker 的分层限速采集。

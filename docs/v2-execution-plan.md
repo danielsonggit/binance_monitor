@@ -1,10 +1,14 @@
 # Binance Market Radar V2：执行计划
 
-当前状态（2026-08-22）：Phase 0 已完成；Phase 1 已通过固定 7 天连续采集验收；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照，MHR-9-1 已完成 Binance 合约状态感知、raw/session-adjusted 双覆盖率与历史质量查询，MHR-9-2 候选池和深度数据采集待开始；Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-8 独立 watchdog 已在 jmk live 运行，V2 reporter 仍禁用。
+> 本文保留早期 Phase 规划和技术交付策略。当前统一阶段、开发优先级和范围变更规则以
+> [总体产品与开发 Roadmap](./v2-roadmap.md) 为准；冲突时先更新总体 Roadmap。
+
+当前状态（2026-08-23）：Phase 0 已完成；Phase 1 已通过固定 7 天连续采集验收；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照。MHR-9-1 的 Binance 合约状态感知、raw/session-adjusted 双覆盖率与历史质量查询已代码完成，但 jmk 正式 schema 仍为 6；当前唯一下一步是部署 migration 7 并观察 24 小时，验收后才进入 MHR-9-2。Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-8 独立 watchdog 已在 jmk live 运行，V2 reporter 仍禁用。
 
 ## 1. 交付策略
 
-采用“数据可信 → 信号可解释 → 通知克制 → 页面可查 → 结果可复盘”的顺序。V1 在整个开发和影子运行期继续服务；V2 不通过一次大切换直接替换生产。
+当前统一顺序为“数据可信 → 候选发现 → 证据确认 → 生命周期 → 结果评估 → 通知克制 → 页面研究”。
+V1 在整个开发和影子运行期继续服务；V2 不通过一次大切换直接替换生产。
 
 预计单人完成可用 V2 需要约 6 至 8 周。前 4 周目标是可影子运行的 MVP，后续 2 至 4 周用于 Web、评估、校准和生产硬化。估算不包含代理节点长时间不可用、Binance 接口政策变化或新增自动交易范围。
 

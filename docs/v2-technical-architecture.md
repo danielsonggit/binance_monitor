@@ -1,5 +1,8 @@
 # Binance Market Radar V2：技术架构与数据设计
 
+> 本文定义技术边界和数据设计；总体阶段顺序和范围变更以
+> [总体产品与开发 Roadmap](./v2-roadmap.md) 为准。
+
 ## 1. 架构原则
 
 1. **模块化单体优先**：一个 Go 仓库、一个版本，按运行角色拆成 `worker`、`api`、`migrate`、`backfill`，避免单机项目过早微服务化。

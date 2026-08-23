@@ -8,7 +8,8 @@
 `24:00` 与次日 `00:00` 是同一时刻，因此每天实际有 6 个不重复的推送时点。
 
 > V2 市场雷达正在 `feature/v2-market-radar` 分支开发。V2 的产品、业务架构、
-> 技术架构和执行计划参见 [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
+> 技术架构和执行计划参见 [总体产品与开发 Roadmap](docs/v2-roadmap.md) 与
+> [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
 
 V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 小时历史回补、
 15m/1h/4h/24h 收益率和质量门禁，以及 Crypto/TradFi 分板块确定性 Top 5。

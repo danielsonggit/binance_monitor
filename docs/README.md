@@ -6,6 +6,7 @@
 
 ## 文档索引
 
+- [总体产品与开发 Roadmap（唯一总体路线）](./v2-roadmap.md)
 - [产品需求与业务架构](./v2-product-requirements.md)
 - [技术架构与数据设计](./v2-technical-architecture.md)
 - [执行计划](./v2-execution-plan.md)
@@ -23,6 +24,7 @@
 5. Go 代码采用模块化单体、多个运行角色；Binance REST 保留自有轻量客户端，WebSocket 使用官方 Go SDK 并封装在适配层后面。
 6. jmk 上的 V1 保持运行；V2 PostgreSQL 使用独立 Docker 卷，worker/API 使用独立 user-systemd 单元。V2 出网仅通过 `127.0.0.1:7890`，不占用 `7891`。
 
-多周期 Top 5 与候选信号生命周期的需求、实现状态和验收证据以各自专项执行台账为准。
+总体方向、阶段顺序和范围边界以总体 Roadmap 为准；多周期 Top 5 与候选信号生命周期的具体
+需求、实现状态和验收证据以各自专项执行台账为准。
 
 文档中的信号阈值是冷启动默认值，不是已经回测证明有效的交易参数。系统上线收集足够样本后，必须根据命中率、收益分布、MFE、MAE 和不同市场状态重新校准。
