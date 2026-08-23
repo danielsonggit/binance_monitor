@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"binance-monitor/internal/domain/market"
 )
@@ -26,6 +27,9 @@ func (r *repositoryStub) LatestFeature(_ context.Context, symbol string) (Featur
 }
 
 func (*repositoryStub) LatestQuality(context.Context) (Quality, error) { return Quality{}, nil }
+func (*repositoryStub) SnapshotQuality(context.Context, time.Time) (*SnapshotQuality, error) {
+	return &SnapshotQuality{}, nil
+}
 
 func TestServiceValidatesRankingArguments(t *testing.T) {
 	service, _ := NewService(&repositoryStub{})

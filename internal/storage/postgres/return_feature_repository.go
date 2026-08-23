@@ -39,6 +39,7 @@ func (r *ReturnFeatureRepository) LoadReturnInputs(
 		FROM instruments
 		WHERE valid_from <= $1
 			AND (valid_to IS NULL OR valid_to > $1)
+			AND exchange_status = 'TRADING'
 		ORDER BY symbol`, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("查询 feature active instruments: %w", err)

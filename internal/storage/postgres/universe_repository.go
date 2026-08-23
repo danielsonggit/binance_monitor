@@ -127,6 +127,7 @@ type activeInstrument struct {
 	QuoteAsset          string
 	Sector              market.Sector
 	ContractType        string
+	ExchangeStatus      market.ExchangeStatus
 	MissingObservations int
 }
 
@@ -134,12 +135,14 @@ func (a activeInstrument) identityChanged(instrument market.Instrument) bool {
 	return a.BaseAsset != instrument.BaseAsset ||
 		a.QuoteAsset != instrument.QuoteAsset ||
 		a.Sector != instrument.Sector ||
-		a.ContractType != instrument.ContractType
+		a.ContractType != instrument.ContractType ||
+		a.ExchangeStatus != instrument.NormalizedExchangeStatus()
 }
 
 func readActiveInstruments(ctx context.Context, transaction pgx.Tx) (map[string]activeInstrument, error) {
 	rows, err := transaction.Query(ctx, `
-		SELECT id, symbol, base_asset, quote_asset, sector, contract_type, missing_observations
+		SELECT id, symbol, base_asset, quote_asset, sector, contract_type,
+			exchange_status, missing_observations
 		FROM instruments
 		WHERE valid_to IS NULL
 		FOR UPDATE`)
@@ -158,6 +161,7 @@ func readActiveInstruments(ctx context.Context, transaction pgx.Tx) (map[string]
 			&item.QuoteAsset,
 			&item.Sector,
 			&item.ContractType,
+			&item.ExchangeStatus,
 			&item.MissingObservations,
 		); err != nil {
 			return nil, fmt.Errorf("解析 active instrument: %w", err)
@@ -238,15 +242,16 @@ func insertInstrument(ctx context.Context, transaction pgx.Tx, instrument market
 	}
 	if _, err := transaction.Exec(ctx, `
 		INSERT INTO instruments (
-			symbol, base_asset, quote_asset, sector, contract_type, status,
+			symbol, base_asset, quote_asset, sector, contract_type, status, exchange_status,
 			price_precision, quantity_precision, valid_from, last_seen_at, metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, 'TRADING', $6, $7, $8, $8, $9)`,
+		VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, $7, $8, $9, $9, $10)`,
 		instrument.Symbol,
 		instrument.BaseAsset,
 		instrument.QuoteAsset,
 		instrument.Sector,
 		instrument.ContractType,
+		instrument.NormalizedExchangeStatus(),
 		instrument.PricePrecision,
 		instrument.QuantityPrecision,
 		observedAt,
@@ -270,15 +275,17 @@ func updateObservedInstrument(
 	}
 	if _, err := transaction.Exec(ctx, `
 		UPDATE instruments
-		SET status = 'TRADING',
-			price_precision = $2,
-			quantity_precision = $3,
-			last_seen_at = $4,
+		SET status = 'ACTIVE',
+			exchange_status = $2,
+			price_precision = $3,
+			quantity_precision = $4,
+			last_seen_at = $5,
 			missing_observations = 0,
-			metadata = $5,
+			metadata = $6,
 			updated_at = now()
 		WHERE id = $1`,
 		id,
+		instrument.NormalizedExchangeStatus(),
 		instrument.PricePrecision,
 		instrument.QuantityPrecision,
 		observedAt,

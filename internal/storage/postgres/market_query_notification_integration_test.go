@@ -74,7 +74,10 @@ func TestMarketQueryRepositoryIntegration(t *testing.T) {
 			 8, 7, 1, 'DEGRADED', $1::timestamptz + interval '2 seconds',
 			 '{"invalid_reasons":{"missing_baseline":1}}'::jsonb),
 			('backfill-quality', 'KLINE_15M_BACKFILL', $1::timestamptz - interval '30 hours', $1::timestamptz,
-			 192, 192, 0, 'SUCCEEDED', $1::timestamptz + interval '1 second', '{}'::jsonb)`, asOf); err != nil {
+			 192, 192, 0, 'SUCCEEDED', $1::timestamptz + interval '1 second', '{}'::jsonb),
+			('snapshot-quality', 'MARKET_SNAPSHOT_5M', $1::timestamptz - interval '5 minutes', $1::timestamptz,
+			 2, 1, 1, 'SUCCEEDED', $1::timestamptz + interval '1 second',
+			 '{"coverage":{"rule_version":"binance-usdm-availability-v1","raw_expected":2,"raw_actual":1,"raw_missing":1,"adjusted_expected":1,"adjusted_actual":1,"adjusted_missing":0,"state_counts":{"OPEN":1,"MARKET_CLOSED":1}},"state_symbols":{"OPEN":["BTCUSDT"],"MARKET_CLOSED":["XAUUSDT"]}}'::jsonb)`, asOf); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -109,6 +112,11 @@ func TestMarketQueryRepositoryIntegration(t *testing.T) {
 		quality.ValidMetrics != 7 || quality.InvalidMetrics != 1 || quality.CoveragePercent.String() != "87.5" ||
 		quality.InvalidReasons["missing_baseline"] != 1 || quality.Backfill == nil || quality.Worker == nil {
 		t.Fatalf("quality=%#v", quality)
+	}
+	if quality.Snapshot == nil || quality.Snapshot.Coverage.RawExpected != 2 ||
+		quality.Snapshot.Coverage.AdjustedExpected != 1 ||
+		quality.Snapshot.StateSymbols[market.AvailabilityMarketClosed][0] != "XAUUSDT" {
+		t.Fatalf("snapshot quality=%#v", quality.Snapshot)
 	}
 }
 

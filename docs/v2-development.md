@@ -1,15 +1,15 @@
 # Binance Market Radar V2：开发进度
 
-更新时间：2026-08-10
+更新时间：2026-08-22
 
 当前分支：`feature/v2-market-radar`
 
 ## 当前阶段
 
 - Phase 0：产品与架构设计已完成；
-- Phase 1：数据库与采集开发项完成，连续影子验收留到 MHR-7；
-- Phase 2：多周期收益率、质量门禁和分板块排名已完成，候选信号与生命周期继续开发；
-- Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API已完成；MHR-7 已完成超过 24 小时的 jmk 影子验收，服务继续运行以积累 7 天生产启用样本；
+- Phase 1：数据库与采集开发项完成，固定 7 天窗口三条核心流水线均为 `2016/2016`、缺口 0、`FAILED` 0；
+- Phase 2：多周期收益率、质量门禁和分板块排名已完成；MHR-9-1 市场状态与双覆盖率已完成，下一步开发候选池与深度数据采集；
+- Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API已完成；V2 reporter 继续禁用；
 - Phase 4 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
@@ -20,7 +20,7 @@
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
 6. 第一版 schema 包含：
-   - 合约有效期 `instruments`；
+   - 合约有效期与 Binance 原始 `exchange_status` 的 `instruments`；
    - 分区表 `market_snapshots_5m`；
    - 分区表 `klines_15m`；
    - 分区表 `return_feature_snapshots`；
@@ -34,7 +34,8 @@
    - `GET /health/ready`，实际检查 PostgreSQL；
    - `GET /api/v2/rankings?sector=CRYPTO&horizon=1h&limit=5`；
    - `GET /api/v2/features/{symbol}`；
-   - `GET /api/v2/quality`。
+   - `GET /api/v2/quality`；
+   - `GET /api/v2/quality/snapshots?as_of=<RFC3339>`，查询最新或指定 5 分钟时点的 raw/session-adjusted 快照质量。
 9. `compose.v2.yaml` 与 V1 `compose.yaml` 完全分离，使用独立 project、网络和数据卷。
 10. 已通过真实 Docker/PostgreSQL 验证：首次 migration 应用 1 个版本，第二次应用 0 个版本；worker 心跳为 `HEALTHY`；API live/ready 均为 200。
 11. 已完成 Binance 合约目录链路：

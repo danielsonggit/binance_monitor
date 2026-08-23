@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/universe"
 )
 
@@ -27,6 +28,7 @@ type MarketRunner interface {
 type SnapshotRunner interface {
 	Run(context.Context) error
 	Health() (bool, time.Time, string)
+	Coverage() market.SnapshotCoverage
 }
 
 type AnalysisRunner interface {
@@ -177,6 +179,7 @@ func (s *Service) record(
 	lastAnalysis time.Time,
 	analysisError string,
 ) error {
+	snapshotCoverage := s.snapshots.Coverage()
 	return s.heartbeats.Record(ctx, componentName, status, map[string]any{
 		"phase":             "phase2-multi-horizon-rankings",
 		"universe_error":    universeError,
@@ -186,6 +189,7 @@ func (s *Service) record(
 		"snapshot_healthy":  snapshotHealthy,
 		"last_snapshot":     lastSnapshot,
 		"snapshot_error":    snapshotError,
+		"snapshot_coverage": snapshotCoverage,
 		"analysis_healthy":  analysisHealthy,
 		"last_analysis":     lastAnalysis,
 		"analysis_error":    analysisError,

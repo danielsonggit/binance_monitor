@@ -1,6 +1,6 @@
 # Binance Market Radar V2：执行计划
 
-当前状态（2026-08-11）：Phase 0 已完成；Phase 1 的数据库与采集开发项已完成；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照；Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-7 已通过 29 小时 20 分钟影子部署验收，jmk 正式 V2 schema 为 6；worker/API 继续常驻积累至少 7 天样本，V2 reporter 仍禁用。
+当前状态（2026-08-22）：Phase 0 已完成；Phase 1 已通过固定 7 天连续采集验收；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照，MHR-9-1 已完成 Binance 合约状态感知、raw/session-adjusted 双覆盖率与历史质量查询，MHR-9-2 候选池和深度数据采集待开始；Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-8 独立 watchdog 已在 jmk live 运行，V2 reporter 仍禁用。
 
 ## 1. 交付策略
 

@@ -24,6 +24,7 @@ type MarketReader interface {
 	Ranking(context.Context, market.Sector, market.ReturnHorizon, int) (marketquery.Ranking, error)
 	Feature(context.Context, string) (marketquery.Feature, error)
 	Quality(context.Context) (marketquery.Quality, error)
+	SnapshotQuality(context.Context, time.Time) (*marketquery.SnapshotQuality, error)
 }
 
 type Server struct {
@@ -73,7 +74,28 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v2/rankings", s.handleRanking)
 	mux.HandleFunc("GET /api/v2/features/{symbol}", s.handleFeature)
 	mux.HandleFunc("GET /api/v2/quality", s.handleQuality)
+	mux.HandleFunc("GET /api/v2/quality/snapshots", s.handleSnapshotQuality)
 	return mux
+}
+
+func (s *Server) handleSnapshotQuality(response http.ResponseWriter, request *http.Request) {
+	var asOf time.Time
+	if raw := strings.TrimSpace(request.URL.Query().Get("as_of")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeAPIError(response, http.StatusBadRequest, "invalid_as_of", "as_of 必须是 RFC3339 时间")
+			return
+		}
+		asOf = parsed
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 3*time.Second)
+	defer cancel()
+	result, err := s.market.SnapshotQuality(ctx, asOf)
+	if err != nil {
+		s.handleQueryError(response, "snapshot_quality", err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (s *Server) handleRanking(response http.ResponseWriter, request *http.Request) {

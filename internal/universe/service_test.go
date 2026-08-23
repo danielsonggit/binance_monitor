@@ -15,7 +15,7 @@ type fakeSource struct {
 	quotes      []string
 }
 
-func (f *fakeSource) FetchActiveInstruments(_ context.Context, quotes []string) ([]market.Instrument, error) {
+func (f *fakeSource) FetchInstruments(_ context.Context, quotes []string) ([]market.Instrument, error) {
 	f.quotes = append([]string(nil), quotes...)
 	return f.instruments, f.err
 }

@@ -9,13 +9,15 @@ import (
 	"binance-monitor/internal/model"
 )
 
-// FetchActiveInstruments adapts Binance exchangeInfo into the V2 domain model.
+// FetchInstruments adapts the complete recognized Binance exchangeInfo catalog
+// into the V2 domain model. Exchange status is retained for point-in-time
+// availability classification; it is not silently filtered here.
 // Only the adapter knows about the legacy Board representation.
-func (c *Client) FetchActiveInstruments(
+func (c *Client) FetchInstruments(
 	ctx context.Context,
 	quoteAssets []string,
 ) ([]market.Instrument, error) {
-	contracts, err := c.FetchContracts(ctx, quoteAssets)
+	contracts, err := c.FetchContractCatalog(ctx, quoteAssets)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +42,7 @@ func (c *Client) FetchActiveInstruments(
 			UnderlyingType:     contract.UnderlyingType,
 			UnderlyingSubTypes: append([]string(nil), contract.UnderlyingSubTypes...),
 			OnboardTime:        onboardTime,
+			ExchangeStatus:     market.ExchangeStatus(contract.Status),
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Symbol < result[j].Symbol })

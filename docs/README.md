@@ -12,6 +12,7 @@
 - [开发进度与运行方式](./v2-development.md)
 - [多周期涨幅 Top 5：需求与执行台账](./v2-multi-horizon-top5-plan.md)
 - [MHR-8：V2 独立健康监控与故障通知](./v2-watchdog-plan.md)
+- [MHR-9：候选信号与生命周期引擎执行台账](./v2-signal-lifecycle-plan.md)
 
 ## 当前决策摘要
 
@@ -22,6 +23,6 @@
 5. Go 代码采用模块化单体、多个运行角色；Binance REST 保留自有轻量客户端，WebSocket 使用官方 Go SDK 并封装在适配层后面。
 6. jmk 上的 V1 保持运行；V2 PostgreSQL 使用独立 Docker 卷，worker/API 使用独立 user-systemd 单元。V2 出网仅通过 `127.0.0.1:7890`，不占用 `7891`。
 
-多周期 Top 5 的需求、实现状态和验收证据以专项执行台账为准。
+多周期 Top 5 与候选信号生命周期的需求、实现状态和验收证据以各自专项执行台账为准。
 
 文档中的信号阈值是冷启动默认值，不是已经回测证明有效的交易参数。系统上线收集足够样本后，必须根据命中率、收益分布、MFE、MAE 和不同市场状态重新校准。

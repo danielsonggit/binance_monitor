@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/universe"
 )
 
@@ -34,7 +35,8 @@ type blockingMarket struct {
 }
 
 type blockingSnapshots struct {
-	healthy bool
+	healthy  bool
+	coverage market.SnapshotCoverage
 }
 
 func (blockingSnapshots) Run(ctx context.Context) error {
@@ -45,6 +47,8 @@ func (blockingSnapshots) Run(ctx context.Context) error {
 func (b blockingSnapshots) Health() (bool, time.Time, string) {
 	return b.healthy, time.Now(), ""
 }
+
+func (b blockingSnapshots) Coverage() market.SnapshotCoverage { return b.coverage }
 
 func (blockingMarket) Run(ctx context.Context) error {
 	<-ctx.Done()

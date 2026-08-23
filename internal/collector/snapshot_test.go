@@ -16,6 +16,10 @@ type staticLatest map[string]market.MiniTicker
 
 func (s staticLatest) Snapshot() map[string]market.MiniTicker { return s }
 
+type healthySource struct{}
+
+func (healthySource) Health() (bool, time.Time, string) { return true, time.Now(), "" }
+
 type recordingSnapshots struct {
 	batches []market.SnapshotBatch
 	result  market.SnapshotWriteResult
@@ -65,6 +69,9 @@ func TestSnapshotCollectorSamplesMinuteAndPersistsClosedFiveMinuteBucket(t *test
 	if len(batch.Items) != 1 || batch.Items[0].Ticker.Symbol != "BTCUSDT" {
 		t.Fatalf("items = %#v", batch.Items)
 	}
+	if !batch.SourceAvailable || len(batch.ObservedSymbols) != 2 {
+		t.Fatalf("source_available=%v observed=%#v", batch.SourceAvailable, batch.ObservedSymbols)
+	}
 }
 
 func TestSnapshotCollectorDoesNotPersistOrdinaryMinute(t *testing.T) {
@@ -99,7 +106,14 @@ func TestSnapshotCollectorHealthDegradesOnMissingSymbols(t *testing.T) {
 
 func TestSnapshotCollectorHealthAcceptsConfiguredCoverage(t *testing.T) {
 	boundary := time.Date(2026, 8, 2, 12, 5, 0, 0, time.UTC)
-	repository := &recordingSnapshots{result: market.SnapshotWriteResult{Expected: 10, Actual: 9, Missing: 1, Status: "DEGRADED"}}
+	repository := &recordingSnapshots{result: market.SnapshotWriteResult{
+		Expected: 10, Actual: 8, Missing: 2, Status: "SUCCEEDED",
+		Coverage: market.SnapshotCoverage{
+			RuleVersion: market.BinanceUSDMAvailabilityRuleV1,
+			RawExpected: 10, RawActual: 8, RawMissing: 2,
+			AdjustedExpected: 8, AdjustedActual: 8, AdjustedMissing: 0,
+		},
+	}}
 	collector := newTestCollector(t, staticLatest{
 		"BTCUSDT": ticker("BTCUSDT", boundary, "101", "100"),
 	}, marketdata.NewWindowStore(2*time.Hour), repository)
@@ -115,7 +129,7 @@ func TestSnapshotCollectorHealthAcceptsConfiguredCoverage(t *testing.T) {
 func newTestCollector(t *testing.T, latest LatestReader, windows WindowWriter, repository SnapshotRepository) *SnapshotCollector {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	result, err := NewSnapshotCollector(latest, windows, repository, 2*time.Hour, 90*time.Second, 5*time.Minute, 90, logger)
+	result, err := NewSnapshotCollector(latest, healthySource{}, windows, repository, 2*time.Hour, 90*time.Second, 5*time.Minute, 90, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

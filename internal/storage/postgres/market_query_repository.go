@@ -172,7 +172,8 @@ func (r *MarketQueryRepository) LatestQuality(ctx context.Context) (marketquery.
 	result.LastCalculatedAt = result.LastCalculatedAt.UTC()
 	if err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FROM instruments
-		WHERE valid_from <= $1 AND (valid_to IS NULL OR valid_to > $1)`, result.AsOf).Scan(&result.ActiveSymbols); err != nil {
+		WHERE valid_from <= $1 AND (valid_to IS NULL OR valid_to > $1)
+			AND exchange_status = 'TRADING'`, result.AsOf).Scan(&result.ActiveSymbols); err != nil {
 		return marketquery.Quality{}, fmt.Errorf("查询 quality active symbols: %w", err)
 	}
 	result.ActiveMetrics = result.ActiveSymbols * len(market.ReturnHorizons())
@@ -206,7 +207,81 @@ func (r *MarketQueryRepository) LatestQuality(ctx context.Context) (marketquery.
 	if err != nil {
 		return marketquery.Quality{}, err
 	}
+	result.Snapshot, err = r.SnapshotQuality(ctx, time.Time{})
+	if err != nil {
+		return marketquery.Quality{}, err
+	}
 	return result, nil
+}
+
+func (r *MarketQueryRepository) SnapshotQuality(ctx context.Context, asOf time.Time) (*marketquery.SnapshotQuality, error) {
+	var result marketquery.SnapshotQuality
+	var metadata []byte
+	var expected, actual, missing int
+	query := `
+		SELECT status, window_start, window_end, COALESCE(completed_at, started_at),
+			expected_count, actual_count, missing_count, metadata
+		FROM collection_runs
+		WHERE job_type = $1 AND status <> 'RUNNING'
+		ORDER BY window_end DESC, completed_at DESC NULLS LAST
+		LIMIT 1`
+	arguments := []any{market.SnapshotJobType}
+	if !asOf.IsZero() {
+		query = `
+			SELECT status, window_start, window_end, COALESCE(completed_at, started_at),
+				expected_count, actual_count, missing_count, metadata
+			FROM collection_runs
+			WHERE job_type = $1 AND status <> 'RUNNING' AND window_end = $2
+			ORDER BY completed_at DESC NULLS LAST
+			LIMIT 1`
+		arguments = append(arguments, asOf.UTC())
+	}
+	err := r.pool.QueryRow(ctx, query, arguments...).Scan(
+		&result.Status, &result.WindowStart, &result.WindowEnd, &result.CompletedAt,
+		&expected, &actual, &missing, &metadata,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询最新 snapshot quality: %w", err)
+	}
+	var details struct {
+		Coverage     market.SnapshotCoverage               `json:"coverage"`
+		StateSymbols map[market.AvailabilityState][]string `json:"state_symbols"`
+	}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &details); err != nil {
+			return nil, fmt.Errorf("解析 snapshot quality metadata: %w", err)
+		}
+	}
+	result.Coverage = details.Coverage
+	result.StateSymbols = details.StateSymbols
+	if result.Coverage.RuleVersion == "" {
+		result.Coverage = market.SnapshotCoverage{
+			RuleVersion:             "legacy-raw-coverage",
+			RawExpected:             expected,
+			RawActual:               actual,
+			RawMissing:              missing,
+			AdjustedExpected:        expected,
+			AdjustedActual:          actual,
+			AdjustedMissing:         missing,
+			RawCoveragePercent:      snapshotCoveragePercent(actual, expected),
+			AdjustedCoveragePercent: snapshotCoveragePercent(actual, expected),
+		}
+	}
+	result.WindowStart = result.WindowStart.UTC()
+	result.WindowEnd = result.WindowEnd.UTC()
+	result.CompletedAt = result.CompletedAt.UTC()
+	return &result, nil
+}
+
+func snapshotCoveragePercent(actual, expected int) decimal.Decimal {
+	if expected <= 0 {
+		return decimal.Zero
+	}
+	return decimal.NewFromInt(int64(actual)).Div(decimal.NewFromInt(int64(expected))).
+		Mul(decimal.NewFromInt(100)).Round(6)
 }
 
 func (r *MarketQueryRepository) latestBackfillQuality(ctx context.Context) (*marketquery.BackfillQuality, error) {

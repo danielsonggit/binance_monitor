@@ -27,9 +27,11 @@ type SnapshotItem struct {
 }
 
 type SnapshotBatch struct {
-	BucketStart time.Time
-	BucketEnd   time.Time
-	Items       []SnapshotItem
+	BucketStart     time.Time
+	BucketEnd       time.Time
+	Items           []SnapshotItem
+	ObservedSymbols []string
+	SourceAvailable bool
 }
 
 func (b SnapshotBatch) Validate(interval time.Duration) error {
@@ -68,4 +70,5 @@ type SnapshotWriteResult struct {
 	MissingSymbols []string
 	Status         string
 	AlreadyApplied bool
+	Coverage       SnapshotCoverage
 }

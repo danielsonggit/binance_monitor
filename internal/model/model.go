@@ -9,6 +9,7 @@ const (
 
 type Contract struct {
 	Symbol             string
+	Status             string
 	BaseAsset          string
 	QuoteAsset         string
 	ContractType       string

@@ -9,7 +9,7 @@ import (
 )
 
 type Source interface {
-	FetchActiveInstruments(context.Context, []string) ([]market.Instrument, error)
+	FetchInstruments(context.Context, []string) ([]market.Instrument, error)
 }
 
 type Repository interface {
@@ -65,7 +65,7 @@ func New(
 }
 
 func (s *Service) Sync(ctx context.Context) (Result, error) {
-	instruments, err := s.source.FetchActiveInstruments(ctx, s.quoteAssets)
+	instruments, err := s.source.FetchInstruments(ctx, s.quoteAssets)
 	if err != nil {
 		return Result{}, fmt.Errorf("读取 Binance 合约目录: %w", err)
 	}

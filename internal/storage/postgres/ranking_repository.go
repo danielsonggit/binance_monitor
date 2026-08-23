@@ -50,6 +50,7 @@ func (r *RankingRepository) LoadRankingInputs(
 			AND f.feature_version = $2
 		WHERE i.valid_from <= $1
 			AND (i.valid_to IS NULL OR i.valid_to > $1)
+			AND i.exchange_status = 'TRADING'
 		ORDER BY i.symbol`, asOf, featureVersion)
 	if err != nil {
 		return nil, fmt.Errorf("查询 ranking inputs: %w", err)
@@ -220,7 +221,8 @@ func loadActiveRankingInstruments(
 		SELECT id, symbol, sector
 		FROM instruments
 		WHERE valid_from <= $1
-			AND (valid_to IS NULL OR valid_to > $1)`, asOf.UTC())
+			AND (valid_to IS NULL OR valid_to > $1)
+			AND exchange_status = 'TRADING'`, asOf.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("查询 ranking active instruments: %w", err)
 	}

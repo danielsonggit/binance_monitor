@@ -100,6 +100,28 @@ func TestUniverseRepositoryLifecycleIntegration(t *testing.T) {
 	if totalETH != 2 || activeETH != 1 {
 		t.Fatalf("ETH lifetimes total=%d active=%d", totalETH, activeETH)
 	}
+
+	statusChanged := relisted
+	statusChanged.ObservedAt = t0.Add(4 * time.Hour)
+	statusChanged.Instruments = []market.Instrument{pendingInstrument("BTCUSDT"), testInstrument("ETHUSDT")}
+	result, err = repository.Reconcile(ctx, statusChanged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Closed != 1 || result.Inserted != 1 {
+		t.Fatalf("status change result = %#v", result)
+	}
+	var currentStatus market.ExchangeStatus
+	var btcLifetimes int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*), max(exchange_status) FILTER (WHERE valid_to IS NULL)
+		FROM instruments
+		WHERE symbol = 'BTCUSDT'`).Scan(&btcLifetimes, &currentStatus); err != nil {
+		t.Fatal(err)
+	}
+	if btcLifetimes != 2 || currentStatus != market.ExchangeStatusPendingTrading {
+		t.Fatalf("BTC lifetimes=%d current exchange status=%s", btcLifetimes, currentStatus)
+	}
 }
 
 func testInstrument(symbol string) market.Instrument {

@@ -43,6 +43,7 @@ func TestMarketSnapshotRepositoryIntegration(t *testing.T) {
 		Instruments: []market.Instrument{
 			testInstrument("BTCUSDT"),
 			testInstrument("ETHUSDT"),
+			pendingInstrument("NEWUSDT"),
 		},
 		MissingConfirmations: 2,
 	})
@@ -57,21 +58,29 @@ func TestMarketSnapshotRepositoryIntegration(t *testing.T) {
 		Items: []market.SnapshotItem{
 			{Ticker: snapshotTicker("BTCUSDT", t0.Add(5*time.Minute-time.Second)), QualityScore: 100},
 		},
+		ObservedSymbols: []string{"BTCUSDT"},
+		SourceAvailable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Expected != 2 || first.Actual != 1 || first.Missing != 1 || first.Status != "DEGRADED" {
+	if first.Expected != 3 || first.Actual != 1 || first.Missing != 2 || first.Status != "DEGRADED" {
 		t.Fatalf("first result = %#v", first)
 	}
-	if len(first.MissingSymbols) != 1 || first.MissingSymbols[0] != "ETHUSDT" {
+	if first.Coverage.AdjustedExpected != 2 || first.Coverage.AdjustedActual != 1 ||
+		first.Coverage.StateCounts[market.AvailabilityMarketClosed] != 1 {
+		t.Fatalf("first coverage = %#v", first.Coverage)
+	}
+	if len(first.MissingSymbols) != 2 || first.MissingSymbols[0] != "ETHUSDT" || first.MissingSymbols[1] != "NEWUSDT" {
 		t.Fatalf("missing symbols = %#v", first.MissingSymbols)
 	}
 
 	duplicate, err := repository.Save(ctx, market.SnapshotBatch{
-		BucketStart: t0,
-		BucketEnd:   t0.Add(market.SnapshotInterval),
-		Items:       []market.SnapshotItem{{Ticker: snapshotTicker("BTCUSDT", t0.Add(4*time.Minute)), QualityScore: 90}},
+		BucketStart:     t0,
+		BucketEnd:       t0.Add(market.SnapshotInterval),
+		Items:           []market.SnapshotItem{{Ticker: snapshotTicker("BTCUSDT", t0.Add(4*time.Minute)), QualityScore: 90}},
+		ObservedSymbols: []string{"BTCUSDT"},
+		SourceAvailable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,11 +97,14 @@ func TestMarketSnapshotRepositoryIntegration(t *testing.T) {
 			{Ticker: snapshotTicker("BTCUSDT", secondStart.Add(5*time.Minute-time.Second)), QualityScore: 100},
 			{Ticker: snapshotTicker("ETHUSDT", secondStart.Add(5*time.Minute-time.Second)), QualityScore: 100},
 		},
+		ObservedSymbols: []string{"BTCUSDT", "ETHUSDT"},
+		SourceAvailable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Status != "SUCCEEDED" || second.Actual != 2 {
+	if second.Status != "SUCCEEDED" || second.Actual != 2 || second.Missing != 1 ||
+		second.Coverage.AdjustedExpected != 2 || second.Coverage.AdjustedActual != 2 {
 		t.Fatalf("second result = %#v", second)
 	}
 
@@ -123,6 +135,12 @@ func TestMarketSnapshotRepositoryIntegration(t *testing.T) {
 	if snapshotRows != 3 || degradedRuns != 3 {
 		t.Fatalf("snapshot rows=%d degraded runs=%d", snapshotRows, degradedRuns)
 	}
+}
+
+func pendingInstrument(symbol string) market.Instrument {
+	instrument := testInstrument(symbol)
+	instrument.ExchangeStatus = market.ExchangeStatusPendingTrading
+	return instrument
 }
 
 func snapshotTicker(symbol string, eventTime time.Time) market.MiniTicker {

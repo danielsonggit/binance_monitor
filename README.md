@@ -15,7 +15,8 @@ V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 �
 已完成 UTC 日优先使用 Binance 官方校验归档，当前日和缺口使用 Futures REST；`features`
 命令和 worker 共用五分钟“回补 → 收益 → 排名”流水线，`rankings --as-of` 支持历史时点重放。执行方法、
 环境变量和验收结果见 [V2 开发进度](docs/v2-development.md) 与
-[多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。
+[多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。候选深度特征、可解释评分和
+信号状态机的后续开发以 [MHR-9 执行台账](docs/v2-signal-lifecycle-plan.md) 为准。
 
 ## 功能
 

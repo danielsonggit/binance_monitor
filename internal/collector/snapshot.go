@@ -17,6 +17,10 @@ type LatestReader interface {
 	Snapshot() map[string]market.MiniTicker
 }
 
+type SourceHealthReader interface {
+	Health() (bool, time.Time, string)
+}
+
 type WindowWriter interface {
 	Apply([]market.PricePoint)
 	Prune(time.Time)
@@ -30,6 +34,7 @@ type SnapshotRepository interface {
 
 type SnapshotCollector struct {
 	latest                 LatestReader
+	source                 SourceHealthReader
 	windows                WindowWriter
 	repository             SnapshotRepository
 	retention              time.Duration
@@ -44,10 +49,12 @@ type SnapshotCollector struct {
 	lastError    string
 	lastExpected int
 	lastActual   int
+	lastCoverage market.SnapshotCoverage
 }
 
 func NewSnapshotCollector(
 	latest LatestReader,
+	source SourceHealthReader,
 	windows WindowWriter,
 	repository SnapshotRepository,
 	retention time.Duration,
@@ -56,7 +63,7 @@ func NewSnapshotCollector(
 	minimumCoveragePercent int,
 	logger *slog.Logger,
 ) (*SnapshotCollector, error) {
-	if latest == nil || windows == nil || repository == nil {
+	if latest == nil || source == nil || windows == nil || repository == nil {
 		return nil, fmt.Errorf("snapshot collector 依赖不能为空")
 	}
 	if retention < interval || maxEventAge <= 0 || interval <= 0 ||
@@ -68,6 +75,7 @@ func NewSnapshotCollector(
 	}
 	return &SnapshotCollector{
 		latest:                 latest,
+		source:                 source,
 		windows:                windows,
 		repository:             repository,
 		retention:              retention,
@@ -110,12 +118,14 @@ func (c *SnapshotCollector) Collect(ctx context.Context, boundary time.Time) err
 
 	points := make([]market.PricePoint, 0, len(symbols))
 	items := make([]market.SnapshotItem, 0, len(symbols))
+	observedSymbols := make([]string, 0, len(symbols))
 	for _, symbol := range symbols {
 		ticker := latest[symbol]
 		if err := ticker.Validate(); err != nil {
 			c.logger.Warn("忽略无效 mini ticker", "symbol", symbol, "error", err)
 			continue
 		}
+		observedSymbols = append(observedSymbols, symbol)
 		age := boundary.Sub(ticker.EventTime)
 		if age < -maxBoundarySkew || age > c.maxEventAge {
 			continue
@@ -150,9 +160,11 @@ func (c *SnapshotCollector) Collect(ctx context.Context, boundary time.Time) err
 		c.logger.Warn("登记了未采集的历史 snapshot 窗口", "buckets", gaps)
 	}
 	result, err := c.repository.Save(ctx, market.SnapshotBatch{
-		BucketStart: bucketStart,
-		BucketEnd:   boundary,
-		Items:       items,
+		BucketStart:     bucketStart,
+		BucketEnd:       boundary,
+		Items:           items,
+		ObservedSymbols: observedSymbols,
+		SourceAvailable: sourceAvailable(c.source),
 	})
 	if err != nil {
 		c.setFailure(err)
@@ -166,6 +178,9 @@ func (c *SnapshotCollector) Collect(ctx context.Context, boundary time.Time) err
 			"expected", result.Expected,
 			"actual", result.Actual,
 			"missing", result.Missing,
+			"adjusted_expected", result.Coverage.AdjustedExpected,
+			"adjusted_actual", result.Coverage.AdjustedActual,
+			"availability_rule", result.Coverage.RuleVersion,
 		)
 	}
 	return nil
@@ -177,7 +192,20 @@ func (c *SnapshotCollector) Health() (bool, time.Time, string) {
 	if !c.ready || c.lastError != "" {
 		return false, c.lastPersist, c.lastError
 	}
-	if c.lastPersist.IsZero() || c.lastExpected <= 0 {
+	if c.lastPersist.IsZero() {
+		return false, c.lastPersist, "尚未完成 5 分钟快照"
+	}
+	if c.lastCoverage.RuleVersion != "" {
+		if c.lastCoverage.Healthy(c.minimumCoveragePercent) {
+			return true, c.lastPersist, ""
+		}
+		return false, c.lastPersist, fmt.Sprintf(
+			"5 分钟会话调整覆盖不足 %d/%d，最低要求 %d%%（规则 %s）",
+			c.lastCoverage.AdjustedActual, c.lastCoverage.AdjustedExpected,
+			c.minimumCoveragePercent, c.lastCoverage.RuleVersion,
+		)
+	}
+	if c.lastExpected <= 0 {
 		return false, c.lastPersist, "尚未完成 5 分钟快照"
 	}
 	if c.lastActual*100 < c.lastExpected*c.minimumCoveragePercent {
@@ -187,6 +215,12 @@ func (c *SnapshotCollector) Health() (bool, time.Time, string) {
 		)
 	}
 	return true, c.lastPersist, ""
+}
+
+func (c *SnapshotCollector) Coverage() market.SnapshotCoverage {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastCoverage
 }
 
 func (c *SnapshotCollector) initialize(ctx context.Context, now time.Time) {
@@ -225,7 +259,13 @@ func (c *SnapshotCollector) setResult(observedAt time.Time, result market.Snapsh
 	c.lastPersist = observedAt
 	c.lastExpected = result.Expected
 	c.lastActual = result.Actual
+	c.lastCoverage = result.Coverage
 	c.lastError = ""
+}
+
+func sourceAvailable(source SourceHealthReader) bool {
+	healthy, _, _ := source.Health()
+	return healthy
 }
 
 func qualityScore(age, maxAge time.Duration) int16 {

@@ -24,6 +24,16 @@ type Instrument struct {
 	UnderlyingType     string
 	UnderlyingSubTypes []string
 	OnboardTime        time.Time
+	ExchangeStatus     ExchangeStatus
+}
+
+func (i Instrument) NormalizedExchangeStatus() ExchangeStatus {
+	status := ExchangeStatus(strings.ToUpper(strings.TrimSpace(string(i.ExchangeStatus))))
+	if status == "" {
+		// Existing callers and historical fixtures predate exchange-status tracking.
+		return ExchangeStatusTrading
+	}
+	return status
 }
 
 func (i Instrument) Validate() error {

@@ -21,13 +21,14 @@ type fakeChecker struct {
 }
 
 type fakeMarketReader struct {
-	ranking marketquery.Ranking
-	feature marketquery.Feature
-	quality marketquery.Quality
-	err     error
-	sector  market.Sector
-	horizon market.ReturnHorizon
-	limit   int
+	ranking      marketquery.Ranking
+	feature      marketquery.Feature
+	quality      marketquery.Quality
+	err          error
+	sector       market.Sector
+	horizon      market.ReturnHorizon
+	limit        int
+	snapshotAsOf time.Time
 }
 
 func (f *fakeMarketReader) Ranking(_ context.Context, sector market.Sector, horizon market.ReturnHorizon, limit int) (marketquery.Ranking, error) {
@@ -41,6 +42,11 @@ func (f *fakeMarketReader) Feature(context.Context, string) (marketquery.Feature
 
 func (f *fakeMarketReader) Quality(context.Context) (marketquery.Quality, error) {
 	return f.quality, f.err
+}
+
+func (f *fakeMarketReader) SnapshotQuality(_ context.Context, asOf time.Time) (*marketquery.SnapshotQuality, error) {
+	f.snapshotAsOf = asOf
+	return &marketquery.SnapshotQuality{Coverage: market.SnapshotCoverage{RuleVersion: market.BinanceUSDMAvailabilityRuleV1}}, f.err
 }
 
 func (f fakeChecker) Ping(context.Context) error { return f.err }
@@ -100,6 +106,18 @@ func TestQualityEndpoint(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "2860") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestSnapshotQualityEndpointParsesHistoricalAsOf(t *testing.T) {
+	reader := &fakeMarketReader{}
+	server := newTestServerWithReader(fakeChecker{}, reader)
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/quality/snapshots?as_of=2026-08-22T04:00:00Z", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !reader.snapshotAsOf.Equal(time.Date(2026, 8, 22, 4, 0, 0, 0, time.UTC)) ||
+		!strings.Contains(response.Body.String(), market.BinanceUSDMAvailabilityRuleV1) {
+		t.Fatalf("status=%d as_of=%s body=%s", response.Code, reader.snapshotAsOf, response.Body.String())
 	}
 }
 

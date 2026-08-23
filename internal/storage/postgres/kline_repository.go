@@ -28,6 +28,7 @@ func (r *KlineRepository) ActiveSymbols(ctx context.Context) ([]string, error) {
 		SELECT symbol
 		FROM instruments
 		WHERE valid_to IS NULL
+			AND exchange_status = 'TRADING'
 		ORDER BY symbol`)
 	if err != nil {
 		return nil, fmt.Errorf("查询回补 active symbols: %w", err)

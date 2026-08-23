@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"binance-monitor/internal/domain/market"
 )
@@ -18,6 +19,7 @@ type Repository interface {
 	LatestRanking(context.Context, market.Sector, market.ReturnHorizon, int) (Ranking, error)
 	LatestFeature(context.Context, string) (Feature, error)
 	LatestQuality(context.Context) (Quality, error)
+	SnapshotQuality(context.Context, time.Time) (*SnapshotQuality, error)
 }
 
 type Service struct {
@@ -59,4 +61,21 @@ func (s *Service) Feature(ctx context.Context, symbol string) (Feature, error) {
 
 func (s *Service) Quality(ctx context.Context) (Quality, error) {
 	return s.repository.LatestQuality(ctx)
+}
+
+func (s *Service) SnapshotQuality(ctx context.Context, asOf time.Time) (*SnapshotQuality, error) {
+	if !asOf.IsZero() {
+		asOf = asOf.UTC()
+		if !asOf.Equal(asOf.Truncate(market.SnapshotInterval)) {
+			return nil, fmt.Errorf("%w: as_of 必须对齐 5 分钟边界", ErrInvalidArgument)
+		}
+	}
+	result, err := s.repository.SnapshotQuality(ctx, asOf)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, ErrNotFound
+	}
+	return result, nil
 }

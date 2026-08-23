@@ -69,6 +69,15 @@ type WorkerQuality struct {
 	Details    map[string]any `json:"details"`
 }
 
+type SnapshotQuality struct {
+	Status       string                                `json:"status"`
+	WindowStart  time.Time                             `json:"window_start"`
+	WindowEnd    time.Time                             `json:"window_end"`
+	CompletedAt  time.Time                             `json:"completed_at"`
+	Coverage     market.SnapshotCoverage               `json:"coverage"`
+	StateSymbols map[market.AvailabilityState][]string `json:"state_symbols"`
+}
+
 type Quality struct {
 	AsOf             time.Time        `json:"as_of"`
 	FeatureVersion   string           `json:"feature_version"`
@@ -82,4 +91,5 @@ type Quality struct {
 	LastCalculatedAt time.Time        `json:"last_calculated_at"`
 	Backfill         *BackfillQuality `json:"backfill,omitempty"`
 	Worker           *WorkerQuality   `json:"worker,omitempty"`
+	Snapshot         *SnapshotQuality `json:"snapshot,omitempty"`
 }

@@ -298,8 +298,17 @@ func runWorker(
 	}
 	latestMarket := marketdata.NewLatestStore()
 	minuteWindows := marketdata.NewWindowStore(settings.MarketWindow)
+	marketSupervisor := binancews.NewSupervisor(
+		wsConnector,
+		latestMarket,
+		settings.WSStaleAfter,
+		settings.WSRotateAfter,
+		settings.WSReconnectWait,
+		logger,
+	)
 	snapshotCollector, err := collector.NewSnapshotCollector(
 		latestMarket,
+		marketSupervisor,
 		minuteWindows,
 		postgres.NewMarketSnapshotRepository(resources.Pool),
 		settings.MarketWindow,
@@ -311,14 +320,6 @@ func runWorker(
 	if err != nil {
 		return err
 	}
-	marketSupervisor := binancews.NewSupervisor(
-		wsConnector,
-		latestMarket,
-		settings.WSStaleAfter,
-		settings.WSRotateAfter,
-		settings.WSReconnectWait,
-		logger,
-	)
 	returnPipeline, err := newReturnPipeline(settings, resources, clients)
 	if err != nil {
 		return err

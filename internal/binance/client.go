@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/model"
 )
@@ -114,6 +115,27 @@ func (c *Client) FetchContracts(
 	return ParseContracts(exchange.Symbols, quoteAssets), nil
 }
 
+func (c *Client) FetchContractCatalog(
+	ctx context.Context,
+	quoteAssets []string,
+) (map[string]model.Contract, error) {
+	if err := c.waitRequestWeight(ctx, 1); err != nil {
+		return nil, fmt.Errorf("等待 Binance exchangeInfo 请求权重: %w", err)
+	}
+	var exchange exchangeInfoResponse
+	if err := c.http.JSON(
+		ctx,
+		http.MethodGet,
+		c.baseURL+"/fapi/v1/exchangeInfo",
+		nil,
+		nil,
+		&exchange,
+	); err != nil {
+		return nil, fmt.Errorf("读取 Binance 合约目录: %w", err)
+	}
+	return ParseContractCatalog(exchange.Symbols, quoteAssets), nil
+}
+
 func (c *Client) waitRequestWeight(ctx context.Context, weight int) error {
 	if c == nil {
 		return fmt.Errorf("Binance client 不能为空")
@@ -125,6 +147,17 @@ func (c *Client) waitRequestWeight(ctx context.Context, weight int) error {
 }
 
 func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {
+	catalog := ParseContractCatalog(rows, quoteAssets)
+	result := make(map[string]model.Contract, len(catalog))
+	for symbol, contract := range catalog {
+		if contract.Status == string(market.ExchangeStatusTrading) {
+			result[symbol] = contract
+		}
+	}
+	return result
+}
+
+func ParseContractCatalog(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {
 	allowedQuotes := make(map[string]struct{}, len(quoteAssets))
 	for _, quote := range quoteAssets {
 		allowedQuotes[strings.ToUpper(quote)] = struct{}{}
@@ -135,7 +168,7 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 		status := strings.ToUpper(row.Status)
 		contractType := strings.ToUpper(row.ContractType)
 		quote := strings.ToUpper(row.QuoteAsset)
-		if status != "TRADING" {
+		if status == "" {
 			continue
 		}
 		if _, allowed := allowedQuotes[quote]; !allowed {
@@ -158,6 +191,7 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 		}
 		result[symbol] = model.Contract{
 			Symbol:             symbol,
+			Status:             status,
 			BaseAsset:          baseAsset,
 			QuoteAsset:         quote,
 			ContractType:       contractType,

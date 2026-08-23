@@ -15,11 +15,22 @@ import (
 )
 
 type MarketSnapshotRepository struct {
-	pool *pgxpool.Pool
+	pool         *pgxpool.Pool
+	availability market.AvailabilityRule
 }
 
 func NewMarketSnapshotRepository(pool *pgxpool.Pool) *MarketSnapshotRepository {
-	return &MarketSnapshotRepository{pool: pool}
+	return NewMarketSnapshotRepositoryWithAvailabilityRule(
+		pool,
+		market.NewBinanceUSDMAvailabilityClassifier(),
+	)
+}
+
+func NewMarketSnapshotRepositoryWithAvailabilityRule(
+	pool *pgxpool.Pool,
+	rule market.AvailabilityRule,
+) *MarketSnapshotRepository {
+	return &MarketSnapshotRepository{pool: pool, availability: rule}
 }
 
 func (r *MarketSnapshotRepository) Save(
@@ -35,7 +46,7 @@ func (r *MarketSnapshotRepository) Save(
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 
-	active, err := activeInstrumentIDs(ctx, transaction, snapshot.BucketEnd)
+	active, err := activeSnapshotInstruments(ctx, transaction, snapshot.BucketEnd)
 	if err != nil {
 		return market.SnapshotWriteResult{}, err
 	}
@@ -54,12 +65,32 @@ func (r *MarketSnapshotRepository) Save(
 	for _, item := range snapshot.Items {
 		itemsBySymbol[item.Ticker.Symbol] = item
 	}
+	observedSymbols := make(map[string]struct{}, len(snapshot.ObservedSymbols))
+	for _, symbol := range snapshot.ObservedSymbols {
+		observedSymbols[symbol] = struct{}{}
+	}
 	missingSymbols := make([]string, 0)
+	stateSymbols := make(map[market.AvailabilityState][]string)
+	observations := make([]market.AvailabilityObservation, 0, len(active))
+	classifier := r.availability
+	if classifier == nil {
+		classifier = market.NewBinanceUSDMAvailabilityClassifier()
+	}
 	batch := &pgx.Batch{}
 	actual := 0
-	for symbol, instrumentID := range active {
-		item, exists := itemsBySymbol[symbol]
-		if !exists {
+	for _, entry := range active {
+		symbol := entry.Instrument.Symbol
+		item, fresh := itemsBySymbol[symbol]
+		_, observed := observedSymbols[symbol]
+		observation := classifier.Classify(market.AvailabilityInput{
+			Instrument:      entry.Instrument,
+			HasTicker:       observed || fresh,
+			TickerFresh:     fresh,
+			SourceAvailable: snapshot.SourceAvailable,
+		})
+		observations = append(observations, observation)
+		stateSymbols[observation.State] = append(stateSymbols[observation.State], symbol)
+		if !fresh {
 			missingSymbols = append(missingSymbols, symbol)
 			continue
 		}
@@ -79,7 +110,7 @@ func (r *MarketSnapshotRepository) Save(
 				source_event_time = EXCLUDED.source_event_time,
 				received_at = EXCLUDED.received_at,
 				quality_score = EXCLUDED.quality_score`,
-			instrumentID,
+			entry.ID,
 			snapshot.BucketStart,
 			ticker.LastPrice.String(),
 			ticker.PriceChangePercent24h().String(),
@@ -104,19 +135,26 @@ func (r *MarketSnapshotRepository) Save(
 		}
 	}
 
+	coverage := market.NewSnapshotCoverage(classifier.RuleVersion(), observations)
+	if err := coverage.Validate(); err != nil {
+		return market.SnapshotWriteResult{}, fmt.Errorf("校验 snapshot coverage: %w", err)
+	}
 	result := market.SnapshotWriteResult{
 		Expected:       len(active),
 		Actual:         actual,
 		Missing:        len(active) - actual,
 		MissingSymbols: missingSymbols,
 		Status:         "SUCCEEDED",
+		Coverage:       coverage,
 	}
-	if result.Missing > 0 {
+	if coverage.AdjustedMissing > 0 || coverage.AdjustedExpected == 0 {
 		result.Status = "DEGRADED"
 	}
-	metadata, err := json.Marshal(map[string]any{
-		"missing_symbols":  missingSymbols,
-		"bucket_semantics": "[start,end)",
+	metadata, err := json.Marshal(snapshotRunMetadata{
+		MissingSymbols:  missingSymbols,
+		BucketSemantics: "[start,end)",
+		Coverage:        coverage,
+		StateSymbols:    stateSymbols,
 	})
 	if err != nil {
 		return market.SnapshotWriteResult{}, fmt.Errorf("编码 snapshot metadata: %w", err)
@@ -248,14 +286,50 @@ func (r *MarketSnapshotRepository) MarkGaps(ctx context.Context, until time.Time
 	return inserted, nil
 }
 
+type activeSnapshotInstrument struct {
+	ID         int64
+	Instrument market.Instrument
+}
+
+func activeSnapshotInstruments(ctx context.Context, transaction pgx.Tx, at time.Time) ([]activeSnapshotInstrument, error) {
+	rows, err := transaction.Query(ctx, `
+		SELECT id, symbol, sector, exchange_status
+		FROM instruments
+		WHERE valid_from <= $1
+			AND (valid_to IS NULL OR valid_to > $1)
+		ORDER BY symbol`, at)
+	if err != nil {
+		return nil, fmt.Errorf("查询 snapshot 有效合约: %w", err)
+	}
+	defer rows.Close()
+	result := make([]activeSnapshotInstrument, 0)
+	for rows.Next() {
+		var entry activeSnapshotInstrument
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.Instrument.Symbol,
+			&entry.Instrument.Sector,
+			&entry.Instrument.ExchangeStatus,
+		); err != nil {
+			return nil, fmt.Errorf("读取 snapshot 有效合约: %w", err)
+		}
+		result = append(result, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 snapshot 有效合约: %w", err)
+	}
+	return result, nil
+}
+
 func activeInstrumentIDs(ctx context.Context, transaction pgx.Tx, at time.Time) (map[string]int64, error) {
 	rows, err := transaction.Query(ctx, `
 		SELECT symbol, id
 		FROM instruments
 		WHERE valid_from <= $1
-			AND (valid_to IS NULL OR valid_to > $1)`, at)
+			AND (valid_to IS NULL OR valid_to > $1)
+			AND exchange_status = 'TRADING'`, at)
 	if err != nil {
-		return nil, fmt.Errorf("查询 snapshot 有效合约: %w", err)
+		return nil, fmt.Errorf("查询可交易合约: %w", err)
 	}
 	defer rows.Close()
 	result := make(map[string]int64)
@@ -263,12 +337,12 @@ func activeInstrumentIDs(ctx context.Context, transaction pgx.Tx, at time.Time) 
 		var symbol string
 		var id int64
 		if err := rows.Scan(&symbol, &id); err != nil {
-			return nil, fmt.Errorf("读取 snapshot 有效合约: %w", err)
+			return nil, fmt.Errorf("读取可交易合约: %w", err)
 		}
 		result[symbol] = id
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历 snapshot 有效合约: %w", err)
+		return nil, fmt.Errorf("遍历可交易合约: %w", err)
 	}
 	return result, nil
 }
@@ -326,10 +400,12 @@ func beginSnapshotRun(
 		return 0, nil, fmt.Errorf("读取已有 snapshot collection run: %w", err)
 	}
 	var details struct {
-		MissingSymbols []string `json:"missing_symbols"`
+		MissingSymbols []string                `json:"missing_symbols"`
+		Coverage       market.SnapshotCoverage `json:"coverage"`
 	}
 	_ = json.Unmarshal(metadata, &details)
 	existing.MissingSymbols = details.MissingSymbols
+	existing.Coverage = details.Coverage
 	existing.AlreadyApplied = true
 	return 0, &existing, nil
 }
@@ -339,8 +415,20 @@ func snapshotRunKey(bucketStart time.Time) string {
 }
 
 func snapshotErrorMessage(result market.SnapshotWriteResult) any {
-	if result.Missing == 0 {
+	if result.Status == "SUCCEEDED" {
 		return nil
 	}
-	return fmt.Sprintf("缺少 %d/%d 个有效合约", result.Missing, result.Expected)
+	return fmt.Sprintf(
+		"原始缺少 %d/%d；会话调整后缺少 %d/%d（规则 %s）",
+		result.Missing, result.Expected,
+		result.Coverage.AdjustedMissing, result.Coverage.AdjustedExpected,
+		result.Coverage.RuleVersion,
+	)
+}
+
+type snapshotRunMetadata struct {
+	MissingSymbols  []string                              `json:"missing_symbols"`
+	BucketSemantics string                                `json:"bucket_semantics"`
+	Coverage        market.SnapshotCoverage               `json:"coverage"`
+	StateSymbols    map[market.AvailabilityState][]string `json:"state_symbols"`
 }
