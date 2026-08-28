@@ -14,11 +14,26 @@ func TestCommandsHaveUniqueNames(t *testing.T) {
 		}
 		seen[command.Name()] = struct{}{}
 	}
-	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings", "report", "reporter"} {
+	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings", "candidate-analysis", "report", "reporter"} {
 		if _, exists := seen[expected]; !exists {
 			t.Errorf("missing command %q", expected)
 		}
 	}
+}
+
+func TestCandidateAnalysisCommandExposesResearchFlags(t *testing.T) {
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		if command.Name() != "candidate-analysis" {
+			continue
+		}
+		for _, name := range []string{"end", "lookback", "format"} {
+			if command.Flags().Lookup(name) == nil {
+				t.Fatalf("candidate-analysis command missing --%s", name)
+			}
+		}
+		return
+	}
+	t.Fatal("candidate-analysis command not found")
 }
 
 func TestRankingsCommandExposesReplayTimeFlag(t *testing.T) {

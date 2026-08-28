@@ -1,6 +1,6 @@
 # Binance Market Radar V2：开发进度
 
-> 本文只记录已实现能力和运行方式。产品终点、阶段顺序、范围边界和当前唯一下一步以
+> 本文只记录已实现能力和运行方式。产品终点、阶段顺序、范围边界和当前执行点以
 > [总体产品与开发 Roadmap](./v2-roadmap.md) 为准。
 
 更新时间：2026-08-28
@@ -11,14 +11,15 @@
 
 - Phase 0：产品与架构设计已完成；
 - Phase 1：数据库与采集开发项完成，固定 7 天窗口三条核心流水线均为 `2016/2016`、缺口 0、`FAILED` 0；
-- Phase 2：多周期收益率、质量门禁和分板块排名已完成；MHR-9-1 已部署 migration 7，当前观察市场状态与双覆盖率 24 小时，验收后再开发候选池；
+- Phase 2：多周期收益率、质量门禁和分板块排名已完成；MHR-9-1 已部署 migration 7，当前观察市场状态与双覆盖率 24 小时；不改线上状态的 R4-A0 七天候选分布分析已完成，R3 验收后再开发持久化候选池；
 - Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API已完成；V2 reporter 继续禁用；
 - Phase 4 及以后：尚未开始。
 
 ## 已完成的 Phase 1 能力
 
 1. CLI 已统一使用 Cobra；V1 默认 CLI 和部署行为保持兼容，显式 `binance-monitor v1` 也可进入 V1。
-2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings`、`report`、`reporter` 八个独立 V2 角色。
+2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings`、
+   `candidate-analysis`、`report`、`reporter` 九个 V2 命令；`candidate-analysis` 是一次性只读研究命令，不是常驻角色。
 3. V2 配置位于 `internal/v2/config`，不把数据库和 Web 配置混入 V1。
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
@@ -164,6 +165,17 @@ binance-monitor rankings --as-of 2026-08-09T13:45:00Z --env-file /absolute/path/
 
 `RANKING_TOP_N` 默认 5、最大 100。涨幅榜只保存正收益标的；质量有效数和正收益数分别记录，
 因此“市场整体下跌”和“数据缺失”不会被混为同一种情况。
+
+只读分析候选指标分布和冷启动候选数量：
+
+```bash
+binance-monitor candidate-analysis --lookback 168h --format markdown \
+  --env-file /absolute/path/.env.v2
+```
+
+默认以数据库最新完整 feature 时点为结束时间，也可以使用 `--end` 指定 UTC RFC3339
+五分钟时点。该命令不写数据库、不访问 Binance、不发送 Telegram；口径和七天实测结果见
+[R4-A0 候选指标分布分析](./v2-candidate-distribution-analysis.md)。
 
 预览最新多周期报告，不调用 Telegram：
 

@@ -49,6 +49,7 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newDatabaseCommand("backfill", "回补 V2 历史行情数据", stdout, stderr, runBackfill),
 		newDatabaseCommand("features", "回补行情并计算 V2 多周期收益率与排名", stdout, stderr, runFeatures),
 		newRankingsCommand(stdout, stderr),
+		newCandidateAnalysisCommand(stdout, stderr),
 		newDatabaseCommand("report", "预览最新 V2 多周期 Telegram 报告，不发送", stdout, stderr, runReport),
 		newDatabaseCommand("reporter", "运行 V2 Telegram 定时报表与可靠发送器", stdout, stderr, runReporter),
 		newWatchdogCommand(stdout, stderr),

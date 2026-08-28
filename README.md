@@ -18,6 +18,8 @@ V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 �
 环境变量和验收结果见 [V2 开发进度](docs/v2-development.md) 与
 [多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。候选深度特征、可解释评分和
 信号状态机的后续开发以 [MHR-9 执行台账](docs/v2-signal-lifecycle-plan.md) 为准。
+候选池编码前的七天分布基线、指标定义和冷启动约束见
+[R4-A0 候选指标分布分析](docs/v2-candidate-distribution-analysis.md)。
 
 ## 功能
 
@@ -91,6 +93,7 @@ Crypto 涨幅前 5｜代币 / 合约 / 最新价 / 24h
 │   ├── app/                   # 单次报告任务编排
 │   ├── binance/               # Binance 公共接口和响应解析
 │   ├── catalog/               # 内嵌标的简介资料库
+│   ├── candidateanalysis/     # R4 候选指标只读分布研究
 │   ├── config/                # 环境变量与 .env 配置
 │   ├── httpjson/              # JSON HTTP、超时和重试
 │   ├── model/                 # 核心数据结构
