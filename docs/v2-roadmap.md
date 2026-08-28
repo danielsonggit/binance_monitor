@@ -13,8 +13,8 @@
 | 产品 | Binance Market Radar |
 | 当前版本 | V1 生产通知 + V2 影子市场雷达 |
 | 开发分支 | `feature/v2-market-radar` |
-| 最后更新 | 2026-08-23 |
-| 当前主阶段 | R3 市场状态与质量语义待部署验收 |
+| 最后更新 | 2026-08-28 |
+| 当前主阶段 | R3 已部署，市场状态与双覆盖率进入 24 小时观察 |
 | 下一开发阶段 | R4-A 轻量候选池 |
 
 ## 2. 产品北极星
@@ -85,13 +85,14 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 
 ## 5. 当前真实状态
 
-截至 2026-08-23：
+截至 2026-08-28：
 
 - V1 继续承担生产 Telegram 定时通知；
-- V2 worker/API 在 jmk 上运行，PostgreSQL 正式 schema 为 6；
+- V2 worker/API/watchdog 在 jmk 上运行，PostgreSQL 正式 schema 为 7；
 - V2 已完成全市场采集、历史回补、多周期收益、分板块 Top 5、只读 API、outbox 和 watchdog；
 - MHR-9-1 代码已在提交 `7a45160` 完成，包含 Binance 合约状态和 raw/session-adjusted 双覆盖率；
-- MHR-9-1 尚未部署到 jmk，migration 7 尚未应用到正式数据库；
+- MHR-9-1 已部署到 jmk，首个完整窗口 adjusted coverage 为 `731/736 = 99.320652%`，
+  当前进入至少 24 小时观察；
 - V2 reporter 仍然禁用，尚未向正式群发送 V2 投资信号；
 - 当前系统可以可靠回答“谁涨得最多”，还不能可靠回答“是否刚启动、是否值得进入”。
 
@@ -104,7 +105,7 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 | R0 | V1 基础通知 | COMPLETED | 生产 Telegram 定时报表稳定运行 |
 | R1 | V2 市场数据底座 | COMPLETED | 全市场数据可持续采集、回补、审计和告警 |
 | R2 | V2 多周期市场雷达 | COMPLETED | 15m/1h/4h/24h 分板块榜单可重放 |
-| R3 | 市场状态与质量语义 | CODE_COMPLETE | MHR-9-1 代码已完成，待 jmk migration 7 与 24 小时验收 |
+| R3 | 市场状态与质量语义 | IN_PROGRESS | migration 7 已部署，首个窗口通过，待 24 小时连续验收 |
 | R4 | 候选机会池与分层采集 | PENDING | 从全市场筛选启动候选，只对候选采集深度数据 |
 | R5 | 可解释信号与生命周期 | PENDING | 证据、评分和状态转移可审计、可重放 |
 | R6 | 信号结果评估与校准 | PENDING | T+收益、MFE、MAE 驱动规则版本迭代 |
@@ -145,17 +146,17 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 
 ### R3：市场状态与质量语义
 
-对应 MHR-9-1。代码已完成，剩余交付步骤：
+对应 MHR-9-1。部署步骤已于 2026-08-28 执行：
 
-1. 备份 jmk PostgreSQL；
-2. 部署提交 `7a45160` 或其后续等价构建；
-3. 执行 migration 6 → 7；
-4. 重启并验证 worker/API；
-5. 检查历史数据与多周期榜单兼容；
-6. 连续观察至少 24 小时 raw/session-adjusted coverage；
-7. 验证 WebSocket 或 7890 故障不会被错误归类为正常休市。
+1. 已备份并校验 jmk PostgreSQL；
+2. 已部署包含提交 `7a45160` 的静态 Linux AMD64 构建；
+3. 已执行 migration 6 → 7，重复执行为 `applied=0`；
+4. 已重启并验证 worker/API，watchdog 在 worker 恢复健康后重新启动；
+5. 已验证历史质量查询、多周期收益和榜单兼容；
+6. 正在连续观察至少 24 小时 raw/session-adjusted coverage；
+7. WebSocket 或 7890 故障分类仍需在观察期或后续故障演练中验证。
 
-完成标准：R3 从 `CODE_COMPLETE` 变为 `COMPLETED` 后，才能开始长期运行 R4 候选任务。
+完成标准：R3 完成 24 小时连续验收并变为 `COMPLETED` 后，才能开始长期运行 R4 候选任务。
 
 ### R4：候选机会池与分层采集
 
@@ -323,7 +324,7 @@ PostgreSQL 当前足够。只有实际查询压力证明需要缓存时才评估
 
 唯一下一步是：
 
-1. 将 R3/MHR-9-1 安全部署到 jmk；
-2. 完成 migration 7 与兼容性验证；
-3. 观察 24 小时市场状态和双覆盖率；
+1. 从 2026-08-28 11:40（北京时间）的首个完整新规则窗口开始观察 24 小时；
+2. 复核 adjusted coverage、状态分布、流水线失败、watchdog 和资源使用；
+3. 将 R3 验收结果写入台账；
 4. 验收通过后启动 R4-A 轻量候选池。

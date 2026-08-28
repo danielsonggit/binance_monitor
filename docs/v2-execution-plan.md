@@ -3,7 +3,7 @@
 > 本文保留早期 Phase 规划和技术交付策略。当前统一阶段、开发优先级和范围变更规则以
 > [总体产品与开发 Roadmap](./v2-roadmap.md) 为准；冲突时先更新总体 Roadmap。
 
-当前状态（2026-08-23）：Phase 0 已完成；Phase 1 已通过固定 7 天连续采集验收；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照。MHR-9-1 的 Binance 合约状态感知、raw/session-adjusted 双覆盖率与历史质量查询已代码完成，但 jmk 正式 schema 仍为 6；当前唯一下一步是部署 migration 7 并观察 24 小时，验收后才进入 MHR-9-2。Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-8 独立 watchdog 已在 jmk live 运行，V2 reporter 仍禁用。
+当前状态（2026-08-28）：Phase 0 已完成；Phase 1 已通过固定 7 天连续采集验收；Phase 2 已完成 15m/1h/4h/24h 收益率、数据质量门禁、Crypto/TradFi 分板块稳定 Top 5 和幂等榜单快照。MHR-9-1 的 Binance 合约状态感知、raw/session-adjusted 双覆盖率与历史质量查询已部署，jmk 正式 schema 为 7；当前唯一下一步是完成 24 小时观察验收，之后才进入 MHR-9-2。Phase 3 的定时报表、只读查询 API、PostgreSQL outbox 和有限重试已完成。MHR-8 独立 watchdog 已在 jmk live 运行，V2 reporter 仍禁用。
 
 ## 1. 交付策略
 

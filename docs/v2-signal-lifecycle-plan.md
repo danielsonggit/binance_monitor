@@ -9,11 +9,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | IN_PROGRESS |
-| 当前阶段 | MHR-9-1 代码完成，待 jmk 部署与 24 小时验收；MHR-9-2 尚未开始 |
+| 当前阶段 | MHR-9-1 已部署，24 小时观察中；MHR-9-2 尚未开始 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-20 |
-| 最后更新 | 2026-08-22 |
+| 最后更新 | 2026-08-28 |
 | 前置阶段 | MHR-7 多周期榜单、MHR-8 独立 watchdog |
 
 ## 2. 背景与问题
@@ -263,7 +263,7 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 | ID | 阶段 | 状态 | 完成标准 | 预计工作量 |
 | --- | --- | --- | --- | --- |
 | MHR-9-0 | 台账与开源项目评估 | COMPLETED | 文档进入索引；范围、参考模式和许可证决定明确 | 0.5 天 |
-| MHR-9-1 | 市场时段与质量语义 | CODE_COMPLETE | raw/session coverage 并存；休市不误报；未知状态禁止信号；仍需 jmk 部署验收 | 1–1.5 天 |
+| MHR-9-1 | 市场时段与质量语义 | IN_PROGRESS | migration 7 已部署且首个窗口通过；仍需 24 小时连续验收 | 1–1.5 天 |
 | MHR-9-2 | 候选池与深度数据采集 | PENDING | 候选幂等；OI/funding/mark/taker 限速采集和审计通过 | 2–3 天 |
 | MHR-9-3 | 深度特征与可解释评分 | PENDING | 子分数、证据、质量上限和规则版本可重放 | 1–2 天 |
 | MHR-9-4 | 生命周期与 PostgreSQL 持久化 | PENDING | 唯一活动生命周期；并发/重启/重复执行安全 | 1.5–2 天 |
@@ -358,5 +358,30 @@ internal/v2/reporter          测试通知与 outbox dispatcher
   - 核心包 `go test -race -count=1`：全部通过；
   - jmk 临时隔离库 `binance_radar_mhr9_test`：13 组 PostgreSQL migration/repository 集成测试全部通过；
   - 测试后已删除临时数据库和测试二进制，未迁移、重启或修改线上 V2/V1 服务。
-- 当前唯一下一步为 jmk 部署 migration 7 与 24 小时质量观察；通过后才进入 MHR-9-2，
+- 当前唯一下一步为完成部署后的 24 小时质量观察；通过后才进入 MHR-9-2，
   实现候选池、候选延续策略，以及 OI/funding/mark/taker 的分层限速采集。
+
+### 2026-08-28 — MHR-9-1 部署完成，进入观察
+
+- 部署前确认 V1、V2 worker/API/watchdog 与 PostgreSQL 正常，正式库约 6.7GB、schema 6、
+  736 个 `TRADING` 合约，最新多周期指标有效率为 100%。
+- 创建 PostgreSQL custom-format 备份
+  `/home/daniel/services/binance-radar-v2/backups/binance_radar_pre_mhr9_1_20260828T0317Z.dump`，
+  大小 738,496,715 bytes；`pg_restore --list` 和 SHA-256 校验通过，checksum 为
+  `256b82d4d5c6cd300c27b5e4acf4c55d0d72840f9fdcbdf323789795a1d1e0b4`。
+- 构建并部署静态 Linux AMD64 二进制，SHA-256 为
+  `11cb8c771b5f5b1ceca63f546d41569b924f4e4fff7c9b5ad0dbcc03a85e8141`；旧二进制保留为
+  `/home/daniel/services/binance-radar-v2/binance-monitor-v2.pre-mhr9-1-20260828`。
+- 维护窗口先停止 watchdog，再停止 V2 worker/API；V1 全程保持 active、未重启，7890/7891
+  监听和用途不变。
+- migration 6 → 7 为 `applied=1`，重复执行为 `applied=0`；正式目录同步得到
+  `TRADING=736`、`SETTLING=130`、`PENDING_TRADING=1`。
+- 首个完整窗口 `2026-08-28 11:40 CST`：raw `731/867 = 84.313725%`，adjusted
+  `731/736 = 99.320652%`；`OPEN=731`、`MARKET_CLOSED=131`、`LOW_ACTIVITY=4`、
+  `DATA_MISSING=1`、`SOURCE_UNAVAILABLE=0`、`UNKNOWN=0`。
+- worker heartbeat 已恢复 `HEALTHY`；API readiness、历史质量查询、多周期收益与榜单通过；
+  watchdog 在 worker 健康后恢复运行，前两次轮询均为健康且部署后无 error 日志；V2 reporter 仍禁用。
+- 首个新规则分析窗口保存 736 行 feature、8 组 ranking 和 40 个榜单项；worker/API/watchdog
+  `NRestarts=0`，V1 自 2026-08-01 启动后未因本次部署重启。
+- 停机跨过 `11:35` 边界，系统按设计登记 1 个不可精确回补的维护窗口缺口；不删除或伪造该记录。
+- MHR-9-1 保持 `IN_PROGRESS`，从首个完整窗口开始观察至少 24 小时后才能标记完成。
