@@ -253,11 +253,15 @@ func (c *Calculator) evaluateInput(input signal.CandidateInput, thresholds secto
 		Threshold15m: thresholds.return15m, Threshold1h: thresholds.return1h,
 		RecentQuoteVolume1h: input.RecentQuoteVolume1h, QuoteVolume24h: input.QuoteVolume24h,
 	}
-	if input.Valid15m {
+	// Percentile distributions contain OPEN instruments only. A non-open
+	// instrument must be rejected by the quality gate before it can be scored;
+	// otherwise an outlier outside the OPEN distribution can produce a rank
+	// above 100 and invalidate the whole deterministic batch.
+	if input.Availability == market.AvailabilityOpen && input.Valid15m {
 		evaluation.Percentile15m = percentileRank(distributions.return15m, input.Return15m)
 		evaluation.Trigger15m = input.Return15m.GreaterThanOrEqual(thresholds.return15m)
 	}
-	if input.Valid1h {
+	if input.Availability == market.AvailabilityOpen && input.Valid1h {
 		evaluation.Percentile1h = percentileRank(distributions.return1h, input.Return1h)
 		evaluation.Trigger1h = input.Return1h.GreaterThanOrEqual(thresholds.return1h)
 	}

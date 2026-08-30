@@ -131,6 +131,37 @@ func TestCalculatorDoesNotMergeRelistedInstrumentWithSameSymbol(t *testing.T) {
 	}
 }
 
+func TestCalculatorDoesNotScoreNonOpenOutlierAgainstOpenDistribution(t *testing.T) {
+	rules := testRules()
+	calculator, _ := NewCalculator(rules)
+	asOf := time.Date(2026, 8, 30, 6, 0, 0, 0, time.UTC)
+	inputs := []signal.CandidateInput{
+		candidateInput("AUSDT", "0", "0"),
+		candidateInput("BUSDT", "1", "1"),
+		candidateInput("CUSDT", "100", "100"),
+	}
+	inputs[2].Availability = market.AvailabilityLowActivity
+
+	batch, err := calculator.Calculate(asOf, asOf.Add(time.Second), inputs, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := batch.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, evaluation := range batch.Evaluations {
+		if evaluation.Symbol != "CUSDT" {
+			continue
+		}
+		if evaluation.Outcome != signal.CandidateRejectedQuality || evaluation.Trigger15m || evaluation.Trigger1h ||
+			!evaluation.Percentile15m.IsZero() || !evaluation.Percentile1h.IsZero() {
+			t.Fatalf("non-open outlier was scored: %#v", evaluation)
+		}
+		return
+	}
+	t.Fatal("CUSDT evaluation not found")
+}
+
 func testRules() signal.CandidateRuleSet {
 	rules := signal.CandidateRulesV1()
 	crypto := rules.Sectors[market.SectorCrypto]
