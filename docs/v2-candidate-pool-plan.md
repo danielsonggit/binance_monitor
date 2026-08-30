@@ -9,7 +9,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 阶段 | R4-A1 / MHR-9-2（轻量候选池） |
-| 状态 | CODE_COMPLETE，待正式库迁移与 24–48 小时影子验收 |
+| 状态 | IN_PROGRESS，schema 8 已部署，正在执行 24–48 小时影子验收 |
 | 规则版本 | `candidate-rules-v1` |
 | 特征版本 | `returns-v1` |
 | 开发分支 | `feature/v2-market-radar` |
@@ -146,8 +146,8 @@ API 只读 PostgreSQL，不访问 Binance，不发送 Telegram。
 - [x] worker 流水线、`candidates --as-of` 和只读 API 已接入。
 - [x] Go 全仓测试和 vet 通过。
 - [x] jmk 隔离数据库执行全部 PostgreSQL 集成测试通过；临时库随后删除。
-- [ ] 正式库备份、migration 7 → 8、重复 migration 和回退文件已验证。
-- [ ] 线上完整五分钟窗口保存约 872 条 evaluation，API 与 run 汇总一致。
+- [x] 正式库备份、migration 7 → 8、重复 migration 和回退文件已验证。
+- [x] 线上完整五分钟窗口保存约 872 条 evaluation，API 与 run 汇总一致。
 - [ ] 连续 24–48 小时统计容量截断、换手、退出、冷却和失败；V1/代理/reporter 不受影响。
 
 代码完成不等于规则有效。影子验收只能证明系统行为稳定；候选是否有投资价值必须等 R6 的
@@ -168,3 +168,44 @@ T+收益、MFE 和 MAE。
   instrument_id 隔离也由纯计算器测试覆盖。
 - 隔离数据库 `binance_radar_r4a1_test` 由本次测试创建，验证后已删除；正式数据库仍为 schema 7，
   本记录不授权自动迁移或常驻候选任务。
+
+### 2026-08-30 — schema 8 正式部署，开始影子验收
+
+- 部署前正式库使用 custom-format `pg_dump` 备份到
+  `/home/daniel/services/binance-radar-v2/backups/binance_radar_pre_r4a1_20260830T1200CST.dump`；
+  大小 676 MB，SHA-256 为
+  `0a2c8148e3f85d2059b9879e6f2fafaf07e27bd961b7347a052cbbdc69198089`，并已使用容器内
+  `pg_restore --list` 验证目录可读。
+- 从提交 `c131807` 构建的 Linux AMD64 静态二进制 SHA-256 为
+  `20d3e75cb5671888b1ced007295a39f47b8a57e63a3b01443cf6fce2896a7e06`；旧版回退文件保留为
+  `/home/daniel/services/binance-radar-v2/binance-monitor-v2.pre-r4a1-20260830T1208CST`。
+- migration 首次执行返回 `applied=1 current_version=8`，立即重复执行返回
+  `applied=0 current_version=8`。
+- 部署停机跨越 12:00 窗口，gap placeholder 没有 `state_symbols`，候选池按质量门禁拒绝该窗口，
+  worker 暂时进入 `DEGRADED`。部署期间暂停 watchdog，避免将计划停机瞬态误报为生产事故；
+  12:05 正常窗口完成后再启动 watchdog，首检直接为健康。
+- 首个完整生产窗口 `2026-08-30 12:05 CST` 保存 872 条 evaluation：14 个 Crypto 候选
+  `ENTERED`，621 个 `REJECTED_MOMENTUM`、236 个 `REJECTED_QUALITY`、1 个
+  `REJECTED_LIQUIDITY`；ACTIVE 为 14，未触及 Crypto 20 的容量上限。
+- `CANDIDATE_POOL_5M` collection run 为 `SUCCEEDED`，数据库与
+  `/api/v2/candidates?sector=CRYPTO&status=ACTIVE` 均返回同一 as-of 和 14 个 ACTIVE。
+- V2 worker/API/watchdog 均为 `active/running`、`NRestarts=0`；V1 继续运行，V2 reporter
+  继续禁用，7890/7891 监听和代理边界未修改。R4-A1 进入 24–48 小时影子验收。
+
+### 2026-08-30 — 非开放标的百分位热修复
+
+- 12:10 自动窗口暴露 `candidate evaluation "MRNAUSDT" 无效`。候选事务在 batch 校验阶段整体
+  回滚，12:10 没有部分 evaluation 或 member 写入，12:05 的 14 个 ACTIVE 头保持不变。
+- 根因是百分位分布只包含 `OPEN` 标的，但旧计算器仍给 `LOW_ACTIVITY/MARKET_CLOSED` 等非开放
+  标的评分；非开放异常值可能落在开放分布最大值之外，从而产生大于 100 的 percentile。
+- 修复为非 `OPEN` 标的直接经过质量门禁，不计算 percentile 和 trigger；新增“非开放异常高收益”
+  回归测试并通过全仓测试与 vet。修复提交为 `355eac1`。
+- 热修复 Linux AMD64 静态二进制 SHA-256 为
+  `2be2861fc741a2ef619819671bb874e9abc52ac2e6ac64d510d11554471d85a2`；部署前版本保留为
+  `/home/daniel/services/binance-radar-v2/binance-monitor-v2.pre-r4a1-hotfix-20260830T1214CST`。
+- 修复后重放 12:10 成功写入 872 条 evaluation：4 个 CONTINUED、10 个 MISS_HELD、4 个
+  ENTERED，ACTIVE 为 18；再次重放返回 `already_applied=true`。
+- 12:15 和 12:20 常驻 worker 自动窗口均成功。12:20 首次完整观察到 7 个 CONTINUED、6 个
+  MISS_HELD、7 个 EXITED 和 1 个 ENTERED，证明三窗口退出、冷却写入与容量回补路径已在线运行。
+- 12:20 operational coverage 为 `695/741 = 93.792173%`，worker 为 `HEALTHY`；watchdog 在该窗口
+  后恢复，首检健康。V1 与三个 V2 服务均为 `active/running`、`NRestarts=0`。

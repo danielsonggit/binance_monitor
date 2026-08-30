@@ -457,3 +457,23 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 - Go 全仓测试/vet 通过；jmk 临时隔离库中全部 15 组 PostgreSQL 集成测试通过，临时库已删除。
 - R4-A1 标记为 `CODE_COMPLETE`，正式库仍为 schema 7；下一步必须先备份，再迁移 7 → 8，
   并完成 24–48 小时影子统计后才能进入 R4-B。
+
+### 2026-08-30 — MHR-9-2 / R4-A1 开始生产影子运行
+
+- 正式库备份已完成并通过 `pg_restore --list` 校验；migration 7 → 8 首次应用 1 个版本、
+  重复执行应用 0 个版本，旧二进制回退文件保留。
+- 首个完整五分钟窗口保存 872 条候选 evaluation，14 个 Crypto 候选进入 ACTIVE；数据库、
+  collection run 和只读 API 的 as-of 与数量一致。
+- 部署跨越的 12:00 gap placeholder 因缺少 `state_symbols` 被质量门禁拒绝；12:05 正常窗口成功后
+  worker 和 watchdog 恢复健康。后续部署必须在首个正常窗口完成后再启动 watchdog。
+- R4-A1 状态更新为 `IN_PROGRESS`，运行态为 shadow。V1、V2 reporter、Telegram outbox 和 7890/7891
+  代理边界均未修改；下一门禁仍是连续 24–48 小时容量、换手、退出和冷却验收。
+
+### 2026-08-30 — R4-A1 非开放标的百分位热修复
+
+- 12:10 窗口发现非 `OPEN` 异常值可能在 OPEN 分布上产生大于 100 的 percentile；领域 batch
+  校验阻止了任何部分写入。
+- 提交 `355eac1` 将非开放标的直接交给质量门禁并增加回归测试；热修复二进制部署后成功重放
+  12:10，重复重放返回 `already_applied=true`。
+- 12:20 自动窗口观察到 CONTINUED、MISS_HELD、EXITED 和 ENTERED 四种状态转移，operational
+  coverage 为 93.792173%；worker/watchdog 均恢复健康，24–48 小时影子验收继续计时。
