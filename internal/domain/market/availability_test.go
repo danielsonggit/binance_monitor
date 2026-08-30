@@ -48,24 +48,55 @@ func TestSnapshotCoverageKeepsRawAndAdjustedCounts(t *testing.T) {
 	if coverage.RawExpected != 6 || coverage.RawActual != 2 || coverage.RawMissing != 4 {
 		t.Fatalf("raw coverage = %#v", coverage)
 	}
-	if coverage.RawCoveragePercent.String() != "33.333333" || coverage.AdjustedCoveragePercent.String() != "20" {
+	if coverage.RawCoveragePercent.String() != "33.333333" || coverage.AdjustedCoveragePercent.String() != "20" ||
+		coverage.OperationalCoveragePercent.String() != "40" {
 		t.Fatalf("coverage percentages = %#v", coverage)
 	}
 	if coverage.AdjustedExpected != 5 || coverage.AdjustedActual != 1 || coverage.AdjustedMissing != 4 {
 		t.Fatalf("adjusted coverage = %#v", coverage)
+	}
+	if coverage.OperationalExpected != 5 || coverage.OperationalActual != 2 || coverage.OperationalMissing != 3 {
+		t.Fatalf("operational coverage = %#v", coverage)
 	}
 	if coverage.StateCounts[AvailabilityLowActivity] != 1 || coverage.StateCounts[AvailabilityMarketClosed] != 1 {
 		t.Fatalf("state counts = %#v", coverage.StateCounts)
 	}
 }
 
-func TestSnapshotCoverageHealthUsesAdjustedDenominator(t *testing.T) {
-	coverage := SnapshotCoverage{
-		RuleVersion: BinanceUSDMAvailabilityRuleV1,
-		RawExpected: 10, RawActual: 8, RawMissing: 2,
-		AdjustedExpected: 8, AdjustedActual: 8, AdjustedMissing: 0,
-	}
+func TestSnapshotCoverageHealthUsesOperationalCoverage(t *testing.T) {
+	coverage := NewSnapshotCoverage(BinanceUSDMAvailabilityRuleV1, []AvailabilityObservation{
+		{State: AvailabilityOpen, TickerFresh: true},
+		{State: AvailabilityOpen, TickerFresh: true},
+		{State: AvailabilityLowActivity},
+		{State: AvailabilityLowActivity},
+		{State: AvailabilityMarketClosed},
+	})
 	if !coverage.Healthy(90) {
-		t.Fatal("adjusted coverage should be healthy")
+		t.Fatal("low activity should not make the source unhealthy")
+	}
+}
+
+func TestSnapshotCoverageHealthRejectsOperationalFailures(t *testing.T) {
+	coverage := NewSnapshotCoverage(BinanceUSDMAvailabilityRuleV1, []AvailabilityObservation{
+		{State: AvailabilityOpen, TickerFresh: true},
+		{State: AvailabilityDataMissing},
+		{State: AvailabilitySourceUnavailable},
+		{State: AvailabilityUnknown},
+	})
+	if coverage.Healthy(85) {
+		t.Fatal("missing, unavailable and unknown observations must reduce operational health")
+	}
+}
+
+func TestSnapshotCoverageHealthFallsBackForHistoricalRecords(t *testing.T) {
+	coverage := SnapshotCoverage{
+		RuleVersion:      BinanceUSDMAvailabilityRuleV1,
+		AdjustedExpected: 10, AdjustedActual: 7, AdjustedMissing: 3,
+		StateCounts: map[AvailabilityState]int{AvailabilityOpen: 7, AvailabilityLowActivity: 2},
+	}
+	coverage.EnsureOperationalCoverage()
+	if coverage.OperationalExpected != 10 || coverage.OperationalActual != 9 ||
+		coverage.OperationalMissing != 1 || !coverage.Healthy(90) {
+		t.Fatalf("historical operational coverage = %#v", coverage)
 	}
 }

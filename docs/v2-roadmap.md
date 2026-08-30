@@ -13,9 +13,9 @@
 | 产品 | Binance Market Radar |
 | 当前版本 | V1 生产通知 + V2 影子市场雷达 |
 | 开发分支 | `feature/v2-market-radar` |
-| 最后更新 | 2026-08-28 |
-| 当前主阶段 | R3 已部署并观察；R4-A0 只读候选分布分析已完成 |
-| 下一开发阶段 | R3 验收后进入 R4-A1 候选领域模型与持久化 |
+| 最后更新 | 2026-08-30 |
+| 当前主阶段 | R3 已完成 24 小时取证，正在修复 LOW_ACTIVITY 告警口径；R4-A0 已完成 |
+| 下一开发阶段 | R3 修正版验收后进入 R4-A1 候选领域模型与持久化 |
 
 ## 2. 产品北极星
 
@@ -91,8 +91,9 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 - V2 worker/API/watchdog 在 jmk 上运行，PostgreSQL 正式 schema 为 7；
 - V2 已完成全市场采集、历史回补、多周期收益、分板块 Top 5、只读 API、outbox 和 watchdog；
 - MHR-9-1 代码已在提交 `7a45160` 完成，包含 Binance 合约状态和 raw/session-adjusted 双覆盖率；
-- MHR-9-1 已部署到 jmk，首个完整窗口 adjusted coverage 为 `731/736 = 99.320652%`，
-  当前进入至少 24 小时观察；
+- MHR-9-1 已部署到 jmk并完成超过 24 小时取证；实际数据证明分类与全源断流检测正确，
+  但周末 TradFi `LOW_ACTIVITY` 会导致 adjusted coverage 产生告警风暴，当前正在增加独立的
+  operational coverage，修复后才关闭 R3；
 - 不改线上服务的 R4-A0 已完成七天候选指标分布分析；原始候选五分钟换手较高，R4-A1
   必须实现容量、滞回和逐原因审计；
 - V2 reporter 仍然禁用，尚未向正式群发送 V2 投资信号；
@@ -107,7 +108,7 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 | R0 | V1 基础通知 | COMPLETED | 生产 Telegram 定时报表稳定运行 |
 | R1 | V2 市场数据底座 | COMPLETED | 全市场数据可持续采集、回补、审计和告警 |
 | R2 | V2 多周期市场雷达 | COMPLETED | 15m/1h/4h/24h 分板块榜单可重放 |
-| R3 | 市场状态与质量语义 | IN_PROGRESS | migration 7 已部署，首个窗口通过，待 24 小时连续验收 |
+| R3 | 市场状态与质量语义 | IN_PROGRESS | 24 小时取证完成，LOW_ACTIVITY 告警口径修正与部署验收中 |
 | R4 | 候选机会池与分层采集 | PENDING | 从全市场筛选启动候选，只对候选采集深度数据 |
 | R5 | 可解释信号与生命周期 | PENDING | 证据、评分和状态转移可审计、可重放 |
 | R6 | 信号结果评估与校准 | PENDING | T+收益、MFE、MAE 驱动规则版本迭代 |
@@ -155,8 +156,10 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 3. 已执行 migration 6 → 7，重复执行为 `applied=0`；
 4. 已重启并验证 worker/API，watchdog 在 worker 恢复健康后重新启动；
 5. 已验证历史质量查询、多周期收益和榜单兼容；
-6. 正在连续观察至少 24 小时 raw/session-adjusted coverage；
-7. WebSocket 或 7890 故障分类仍需在观察期或后续故障演练中验证。
+6. 已连续观察超过 24 小时 raw/session-adjusted coverage；
+7. 已由一次真实 WebSocket 新鲜度故障证明 `SOURCE_UNAVAILABLE` 分类、自动重连和 watchdog
+   incident/recovery 状态机有效；
+8. 正在增加 operational coverage，避免正常 `LOW_ACTIVITY` 触发系统故障，同时保留严格审计。
 
 完成标准：R3 完成 24 小时连续验收并变为 `COMPLETED` 后，才能开始长期运行 R4 候选任务。
 

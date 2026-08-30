@@ -200,8 +200,8 @@ func (c *SnapshotCollector) Health() (bool, time.Time, string) {
 			return true, c.lastPersist, ""
 		}
 		return false, c.lastPersist, fmt.Sprintf(
-			"5 分钟会话调整覆盖不足 %d/%d，最低要求 %d%%（规则 %s）",
-			c.lastCoverage.AdjustedActual, c.lastCoverage.AdjustedExpected,
+			"5 分钟运行健康覆盖不足 %d/%d，最低要求 %d%%（规则 %s）",
+			c.lastCoverage.OperationalActual, c.lastCoverage.OperationalExpected,
 			c.minimumCoveragePercent, c.lastCoverage.RuleVersion,
 		)
 	}

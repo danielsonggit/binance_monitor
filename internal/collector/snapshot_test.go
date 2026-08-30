@@ -112,6 +112,7 @@ func TestSnapshotCollectorHealthAcceptsConfiguredCoverage(t *testing.T) {
 			RuleVersion: market.BinanceUSDMAvailabilityRuleV1,
 			RawExpected: 10, RawActual: 8, RawMissing: 2,
 			AdjustedExpected: 8, AdjustedActual: 8, AdjustedMissing: 0,
+			OperationalExpected: 8, OperationalActual: 8, OperationalMissing: 0,
 		},
 	}}
 	collector := newTestCollector(t, staticLatest{

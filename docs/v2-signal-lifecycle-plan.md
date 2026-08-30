@@ -9,11 +9,11 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | IN_PROGRESS |
-| 当前阶段 | MHR-9-1 已部署，24 小时观察中；MHR-9-2 尚未开始 |
+| 当前阶段 | MHR-9-1 已完成 24 小时取证，正在修复 LOW_ACTIVITY 告警口径；MHR-9-2 尚未开始 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-20 |
-| 最后更新 | 2026-08-28 |
+| 最后更新 | 2026-08-30 |
 | 前置阶段 | MHR-7 多周期榜单、MHR-8 独立 watchdog |
 
 ## 2. 背景与问题
@@ -87,7 +87,11 @@ MHR-9 将榜单升级为可解释、可重放、有生命周期的信号系统�
   明确的合约 session 或维护窗口时扩展。
 - 正常休市从实时覆盖率分母中排除，但原始未收到行情事实和判定依据必须保留。
 - 质量 API 同时输出 raw coverage 与 session-adjusted coverage，禁止只暴露修正后的漂亮数字。
-- watchdog 的严重故障判断使用 session-adjusted coverage，同时保留 raw coverage 供审计。
+- 质量 API 还必须输出 operational coverage：分母与 session-adjusted 相同，分子为
+  `OPEN + LOW_ACTIVITY`；它只回答行情源是否正常，不代表标的可用于确认信号。
+- watchdog 的严重故障判断使用 operational coverage；`DATA_MISSING`、`SOURCE_UNAVAILABLE`
+  和 `UNKNOWN` 降低该覆盖率，`LOW_ACTIVITY` 仍保留在 raw/session-adjusted 缺失审计中，
+  但不再单独制造系统故障告警。
 - 在无法从 Binance 元数据证明交易时段前，状态必须为 `UNKNOWN`，不能猜测为休市。
 
 ### 6.3 MHR-9-1 交付物与验收
@@ -349,7 +353,7 @@ internal/v2/reporter          测试通知与 outbox dispatcher
   coverage percent、状态计数、逐状态 symbol 和规则版本；旧的顶层 expected/actual/missing
   保持 raw 口径，未删除或改写历史记录。
 - 收益率、K 线回补和排名仅选择事件时点为 `TRADING` 的合约；状态不明不会进入后续信号输入。
-- worker heartbeat 写入 `snapshot_coverage`，collector 健康判断改用 adjusted coverage；整体
+- worker heartbeat 写入 `snapshot_coverage`，collector 首版健康判断使用 adjusted coverage；整体
   WebSocket 断流时所有应评估标的进入 `SOURCE_UNAVAILABLE`，因此 watchdog 不会被休市规则掩盖。
 - `/api/v2/quality` 返回最新 snapshot quality；新增
   `/api/v2/quality/snapshots?as_of=<RFC3339>`，可按对齐的 5 分钟事件时点读取历史判定与审计证据。
@@ -402,3 +406,22 @@ internal/v2/reporter          测试通知与 outbox dispatcher
 - 冷启动约束、详细分布、局限和下一步记录在
   [R4-A0 候选指标分布分析](./v2-candidate-distribution-analysis.md)。
 - R3 仍保持 `IN_PROGRESS`；R4-A0 完成不授权启动持久化候选任务，必须先完成 R3 24 小时验收。
+
+### 2026-08-30 — MHR-9-1 24 小时取证完成，发现告警口径缺陷
+
+- 从首个完整窗口起审计 558 个五分钟窗口：`MARKET_SNAPSHOT_5M`、`RETURN_FEATURES_5M`、
+  `RANKINGS_5M` 时间网格持续运行，worker/API/watchdog 均为 `NRestarts=0`；最新四周期特征
+  `2964/2964` 有效，回补缺口为 0。
+- 558 个 snapshot 窗口的 `DATA_MISSING` 最大值为 1（仅部署首窗），其后始终为 0；周日最新
+  `LOW_ACTIVITY=105`，其中 TradFi 104、Crypto 1。这是可审计的低成交事实，不是漏采或休市推断。
+- `2026-08-29 22:34:58 CST` WebSocket 因超过新鲜度窗口主动重连；`22:35` 窗口将 872 个标的
+  全部分为 `SOURCE_UNAVAILABLE`，adjusted coverage 为 0。watchdog 连续 3 次失败后建立 incident，
+  数据源在约 5 秒后重连，下一窗口恢复，watchdog 连续 2 次健康后关闭 incident。
+- 取证同时证明首版告警口径存在缺陷：周末 TradFi 低活跃会把 adjusted coverage 压到 85% 以下，
+  造成大量短暂故障/恢复通知。不能通过删除 `LOW_ACTIVITY`、伪造 `MARKET_CLOSED` 或任意下调
+  阈值掩盖该问题。
+- 修正决定：raw 和 session-adjusted 口径、状态计数、逐标的证据及历史记录全部保留；新增
+  operational coverage，使用 `OPEN + LOW_ACTIVITY` 衡量行情源运行健康。候选/信号仍只允许
+  `OPEN`，因此该变更不会让低活跃标的进入 `CONFIRMED`。
+- MHR-9-1 在修正版通过单元/集成测试、部署后周末实测和一次故障语义验证前继续保持
+  `IN_PROGRESS`；R4-A1 不提前启动。

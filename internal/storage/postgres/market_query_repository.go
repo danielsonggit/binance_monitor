@@ -256,18 +256,23 @@ func (r *MarketQueryRepository) SnapshotQuality(ctx context.Context, asOf time.T
 		}
 	}
 	result.Coverage = details.Coverage
+	result.Coverage.EnsureOperationalCoverage()
 	result.StateSymbols = details.StateSymbols
 	if result.Coverage.RuleVersion == "" {
 		result.Coverage = market.SnapshotCoverage{
-			RuleVersion:             "legacy-raw-coverage",
-			RawExpected:             expected,
-			RawActual:               actual,
-			RawMissing:              missing,
-			AdjustedExpected:        expected,
-			AdjustedActual:          actual,
-			AdjustedMissing:         missing,
-			RawCoveragePercent:      snapshotCoveragePercent(actual, expected),
-			AdjustedCoveragePercent: snapshotCoveragePercent(actual, expected),
+			RuleVersion:                "legacy-raw-coverage",
+			RawExpected:                expected,
+			RawActual:                  actual,
+			RawMissing:                 missing,
+			AdjustedExpected:           expected,
+			AdjustedActual:             actual,
+			AdjustedMissing:            missing,
+			RawCoveragePercent:         snapshotCoveragePercent(actual, expected),
+			AdjustedCoveragePercent:    snapshotCoveragePercent(actual, expected),
+			OperationalExpected:        expected,
+			OperationalActual:          actual,
+			OperationalMissing:         missing,
+			OperationalCoveragePercent: snapshotCoveragePercent(actual, expected),
 		}
 	}
 	result.WindowStart = result.WindowStart.UTC()

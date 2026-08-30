@@ -104,16 +104,20 @@ func (c AvailabilityClassifier) Classify(input AvailabilityInput) AvailabilityOb
 }
 
 type SnapshotCoverage struct {
-	RuleVersion             string                    `json:"rule_version"`
-	RawExpected             int                       `json:"raw_expected"`
-	RawActual               int                       `json:"raw_actual"`
-	RawMissing              int                       `json:"raw_missing"`
-	RawCoveragePercent      decimal.Decimal           `json:"raw_coverage_percent"`
-	AdjustedExpected        int                       `json:"adjusted_expected"`
-	AdjustedActual          int                       `json:"adjusted_actual"`
-	AdjustedMissing         int                       `json:"adjusted_missing"`
-	AdjustedCoveragePercent decimal.Decimal           `json:"adjusted_coverage_percent"`
-	StateCounts             map[AvailabilityState]int `json:"state_counts"`
+	RuleVersion                string                    `json:"rule_version"`
+	RawExpected                int                       `json:"raw_expected"`
+	RawActual                  int                       `json:"raw_actual"`
+	RawMissing                 int                       `json:"raw_missing"`
+	RawCoveragePercent         decimal.Decimal           `json:"raw_coverage_percent"`
+	AdjustedExpected           int                       `json:"adjusted_expected"`
+	AdjustedActual             int                       `json:"adjusted_actual"`
+	AdjustedMissing            int                       `json:"adjusted_missing"`
+	AdjustedCoveragePercent    decimal.Decimal           `json:"adjusted_coverage_percent"`
+	OperationalExpected        int                       `json:"operational_expected"`
+	OperationalActual          int                       `json:"operational_actual"`
+	OperationalMissing         int                       `json:"operational_missing"`
+	OperationalCoveragePercent decimal.Decimal           `json:"operational_coverage_percent"`
+	StateCounts                map[AvailabilityState]int `json:"state_counts"`
 }
 
 func NewSnapshotCoverage(ruleVersion string, observations []AvailabilityObservation) SnapshotCoverage {
@@ -134,14 +138,20 @@ func NewSnapshotCoverage(ruleVersion string, observations []AvailabilityObservat
 			continue
 		}
 		result.AdjustedExpected++
+		result.OperationalExpected++
 		if observation.State == AvailabilityOpen {
 			result.AdjustedActual++
+		}
+		if observation.State == AvailabilityOpen || observation.State == AvailabilityLowActivity {
+			result.OperationalActual++
 		}
 	}
 	result.RawMissing = result.RawExpected - result.RawActual
 	result.AdjustedMissing = result.AdjustedExpected - result.AdjustedActual
+	result.OperationalMissing = result.OperationalExpected - result.OperationalActual
 	result.RawCoveragePercent = coveragePercent(result.RawActual, result.RawExpected)
 	result.AdjustedCoveragePercent = coveragePercent(result.AdjustedActual, result.AdjustedExpected)
+	result.OperationalCoveragePercent = coveragePercent(result.OperationalActual, result.OperationalExpected)
 	return result
 }
 
@@ -150,7 +160,8 @@ func (c SnapshotCoverage) Validate() error {
 		return fmt.Errorf("availability rule version 不能为空")
 	}
 	if c.RawExpected < 0 || c.RawActual < 0 || c.RawMissing < 0 ||
-		c.AdjustedExpected < 0 || c.AdjustedActual < 0 || c.AdjustedMissing < 0 {
+		c.AdjustedExpected < 0 || c.AdjustedActual < 0 || c.AdjustedMissing < 0 ||
+		c.OperationalExpected < 0 || c.OperationalActual < 0 || c.OperationalMissing < 0 {
 		return fmt.Errorf("snapshot coverage 计数不能为负数")
 	}
 	if c.RawActual+c.RawMissing != c.RawExpected {
@@ -159,19 +170,50 @@ func (c SnapshotCoverage) Validate() error {
 	if c.AdjustedActual+c.AdjustedMissing != c.AdjustedExpected {
 		return fmt.Errorf("adjusted snapshot coverage 计数不一致")
 	}
+	if c.OperationalActual+c.OperationalMissing != c.OperationalExpected {
+		return fmt.Errorf("operational snapshot coverage 计数不一致")
+	}
 	if c.AdjustedExpected > c.RawExpected || c.AdjustedActual > c.RawActual {
 		return fmt.Errorf("adjusted snapshot coverage 不能大于 raw coverage")
 	}
+	if c.OperationalExpected > c.RawExpected || c.OperationalActual < c.AdjustedActual {
+		return fmt.Errorf("operational snapshot coverage 计数无效")
+	}
 	if c.RawCoveragePercent.IsNegative() || c.RawCoveragePercent.GreaterThan(decimal.NewFromInt(100)) ||
-		c.AdjustedCoveragePercent.IsNegative() || c.AdjustedCoveragePercent.GreaterThan(decimal.NewFromInt(100)) {
+		c.AdjustedCoveragePercent.IsNegative() || c.AdjustedCoveragePercent.GreaterThan(decimal.NewFromInt(100)) ||
+		c.OperationalCoveragePercent.IsNegative() || c.OperationalCoveragePercent.GreaterThan(decimal.NewFromInt(100)) {
 		return fmt.Errorf("snapshot coverage 百分比必须在 0 到 100 之间")
 	}
 	return nil
 }
 
 func (c SnapshotCoverage) Healthy(minimumPercent int) bool {
-	return minimumPercent > 0 && minimumPercent <= 100 && c.AdjustedExpected > 0 &&
-		c.AdjustedActual*100 >= c.AdjustedExpected*minimumPercent
+	expected, actual := c.operationalCounts()
+	return minimumPercent > 0 && minimumPercent <= 100 && expected > 0 &&
+		actual*100 >= expected*minimumPercent
+}
+
+// EnsureOperationalCoverage derives the operational view for records written
+// before these fields existed. LOW_ACTIVITY remains missing from the strict
+// adjusted view, but is not evidence that the market data source has failed.
+func (c *SnapshotCoverage) EnsureOperationalCoverage() {
+	if c == nil || c.OperationalExpected > 0 || c.AdjustedExpected <= 0 {
+		return
+	}
+	c.OperationalExpected, c.OperationalActual = c.operationalCounts()
+	c.OperationalMissing = c.OperationalExpected - c.OperationalActual
+	c.OperationalCoveragePercent = coveragePercent(c.OperationalActual, c.OperationalExpected)
+}
+
+func (c SnapshotCoverage) operationalCounts() (int, int) {
+	if c.OperationalExpected > 0 {
+		return c.OperationalExpected, c.OperationalActual
+	}
+	actual := c.AdjustedActual
+	if c.StateCounts != nil {
+		actual += c.StateCounts[AvailabilityLowActivity]
+	}
+	return c.AdjustedExpected, actual
 }
 
 func coveragePercent(actual, expected int) decimal.Decimal {

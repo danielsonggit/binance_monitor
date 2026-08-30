@@ -115,6 +115,8 @@ func TestMarketQueryRepositoryIntegration(t *testing.T) {
 	}
 	if quality.Snapshot == nil || quality.Snapshot.Coverage.RawExpected != 2 ||
 		quality.Snapshot.Coverage.AdjustedExpected != 1 ||
+		quality.Snapshot.Coverage.OperationalExpected != 1 ||
+		quality.Snapshot.Coverage.OperationalActual != 1 ||
 		quality.Snapshot.StateSymbols[market.AvailabilityMarketClosed][0] != "XAUUSDT" {
 		t.Fatalf("snapshot quality=%#v", quality.Snapshot)
 	}
