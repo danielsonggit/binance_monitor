@@ -14,8 +14,8 @@
 | 当前版本 | V1 生产通知 + V2 影子市场雷达 |
 | 开发分支 | `feature/v2-market-radar` |
 | 最后更新 | 2026-08-30 |
-| 当前主阶段 | R3 已完成 24 小时取证，正在修复 LOW_ACTIVITY 告警口径；R4-A0 已完成 |
-| 下一开发阶段 | R3 修正版验收后进入 R4-A1 候选领域模型与持久化 |
+| 当前主阶段 | R3 已完成；R4-A1 候选领域模型与持久化开发中 |
+| 下一开发阶段 | 完成 R4-A1 容量、滞回、幂等审计和影子任务验收 |
 
 ## 2. 产品北极星
 
@@ -91,9 +91,9 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 - V2 worker/API/watchdog 在 jmk 上运行，PostgreSQL 正式 schema 为 7；
 - V2 已完成全市场采集、历史回补、多周期收益、分板块 Top 5、只读 API、outbox 和 watchdog；
 - MHR-9-1 代码已在提交 `7a45160` 完成，包含 Binance 合约状态和 raw/session-adjusted 双覆盖率；
-- MHR-9-1 已部署到 jmk并完成超过 24 小时取证；实际数据证明分类与全源断流检测正确，
-  但周末 TradFi `LOW_ACTIVITY` 会导致 adjusted coverage 产生告警风暴，当前正在增加独立的
-  operational coverage，修复后才关闭 R3；
+- MHR-9-1 已完成超过 24 小时取证和修正版部署；raw/session-adjusted 严格审计保持不变，
+  operational coverage 已避免周末 `LOW_ACTIVITY` 告警风暴，并由真实断流窗口证明
+  `SOURCE_UNAVAILABLE` 仍会触发故障；
 - 不改线上服务的 R4-A0 已完成七天候选指标分布分析；原始候选五分钟换手较高，R4-A1
   必须实现容量、滞回和逐原因审计；
 - V2 reporter 仍然禁用，尚未向正式群发送 V2 投资信号；
@@ -108,8 +108,8 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 | R0 | V1 基础通知 | COMPLETED | 生产 Telegram 定时报表稳定运行 |
 | R1 | V2 市场数据底座 | COMPLETED | 全市场数据可持续采集、回补、审计和告警 |
 | R2 | V2 多周期市场雷达 | COMPLETED | 15m/1h/4h/24h 分板块榜单可重放 |
-| R3 | 市场状态与质量语义 | IN_PROGRESS | 24 小时取证完成，LOW_ACTIVITY 告警口径修正与部署验收中 |
-| R4 | 候选机会池与分层采集 | PENDING | 从全市场筛选启动候选，只对候选采集深度数据 |
+| R3 | 市场状态与质量语义 | COMPLETED | 三层覆盖率、状态分类、真实断流和 watchdog 均已验收 |
+| R4 | 候选机会池与分层采集 | IN_PROGRESS | R4-A1 候选领域模型、容量、滞回和持久化开发中 |
 | R5 | 可解释信号与生命周期 | PENDING | 证据、评分和状态转移可审计、可重放 |
 | R6 | 信号结果评估与校准 | PENDING | T+收益、MFE、MAE 驱动规则版本迭代 |
 | R7 | Telegram V2 信号通知 | PENDING | 测试群先行，状态变化通知无业务重复 |
@@ -159,9 +159,9 @@ Telegram 排版、Web 页面和更多指标都不能越过上游数据与评估�
 6. 已连续观察超过 24 小时 raw/session-adjusted coverage；
 7. 已由一次真实 WebSocket 新鲜度故障证明 `SOURCE_UNAVAILABLE` 分类、自动重连和 watchdog
    incident/recovery 状态机有效；
-8. 正在增加 operational coverage，避免正常 `LOW_ACTIVITY` 触发系统故障，同时保留严格审计。
+8. operational coverage 已部署验收，避免正常 `LOW_ACTIVITY` 触发系统故障，同时保留严格审计。
 
-完成标准：R3 完成 24 小时连续验收并变为 `COMPLETED` 后，才能开始长期运行 R4 候选任务。
+完成标准已满足。R4 候选代码可以开发，但长期影子任务仍必须通过独立部署验收。
 
 ### R4：候选机会池与分层采集
 

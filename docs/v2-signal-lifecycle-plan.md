@@ -9,7 +9,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 状态 | IN_PROGRESS |
-| 当前阶段 | MHR-9-1 已完成 24 小时取证，正在修复 LOW_ACTIVITY 告警口径；MHR-9-2 尚未开始 |
+| 当前阶段 | MHR-9-1 已完成；MHR-9-2 / R4-A1 候选领域模型与持久化开发中 |
 | 所属版本 | V2 Market Radar |
 | 开发分支 | `feature/v2-market-radar` |
 | 创建日期 | 2026-08-20 |
@@ -425,3 +425,20 @@ internal/v2/reporter          测试通知与 outbox dispatcher
   `OPEN`，因此该变更不会让低活跃标的进入 `CONFIRMED`。
 - MHR-9-1 在修正版通过单元/集成测试、部署后周末实测和一次故障语义验证前继续保持
   `IN_PROGRESS`；R4-A1 不提前启动。
+
+### 2026-08-30 — MHR-9-1 修正部署验收完成，MHR-9-2 / R4-A1 开始
+
+- operational coverage 修正提交为 `c232535`；全仓 `go test -count=1 ./...`、`go vet ./...`
+  和领域/采集/PostgreSQL/watchdog 目标包 race 全部通过，无 schema migration。
+- Linux AMD64 静态构建在 Mac 与 jmk staging 的 SHA-256 均为
+  `8066fe53593dca847b672427ece323c9c08d64d05f2b417df450d0721e552d5b`；旧生产二进制保留为
+  `/home/daniel/services/binance-radar-v2/binance-monitor-v2.pre-r3-operational-20260830T102134`。
+- 部署只重启 V2 watchdog/worker/API；V1 自 `2026-08-01 16:38:51 CST` 持续运行且
+  `NRestarts=0`，PostgreSQL 保持 healthy，V2 reporter 仍不存在，7890/7891 未修改。
+- 重启后的首个完整窗口 `2026-08-30 10:30 CST` 保留 strict adjusted
+  `649/741 = 87.584345%`，其中 `LOW_ACTIVITY=62`、`DATA_MISSING=30`；operational 为
+  `711/741 = 95.951417%`，worker 与 watchdog 均为 `HEALTHY`。
+- 使用新 API 重放 `2026-08-29 22:35 CST` 的真实断流窗口，operational 仍为 `0/872`，
+  `SOURCE_UNAVAILABLE=872`。因此新口径既不会把低活跃当系统故障，也不会掩盖全源断流。
+- MHR-9-1 / R3 状态更新为 `COMPLETED`。下一阶段正式进入 MHR-9-2 / R4-A1，但候选任务
+  仍须先完成领域、持久化、幂等与回放测试，不能因阶段开始自动部署。
