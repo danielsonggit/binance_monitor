@@ -209,3 +209,6 @@ T+收益、MFE 和 MAE。
   MISS_HELD、7 个 EXITED 和 1 个 ENTERED，证明三窗口退出、冷却写入与容量回补路径已在线运行。
 - 12:20 operational coverage 为 `695/741 = 93.792173%`，worker 为 `HEALTHY`；watchdog 在该窗口
   后恢复，首检健康。V1 与三个 V2 服务均为 `active/running`、`NRestarts=0`。
+- 截至 12:52，已连续保存 10 个候选窗口、8720 条 evaluation，`CANDIDATE_POOL_5M` 为
+  `10/10 SUCCEEDED`；候选头为 13 个 ACTIVE、17 个 COOLDOWN，最新 operational coverage 为
+  99.865047%，watchdog 持续健康。这是 24–48 小时影子验收的起始基线，不等同于最终验收完成。
