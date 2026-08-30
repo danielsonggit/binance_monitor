@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 )
 
 var (
@@ -20,6 +21,24 @@ type Repository interface {
 	LatestFeature(context.Context, string) (Feature, error)
 	LatestQuality(context.Context) (Quality, error)
 	SnapshotQuality(context.Context, time.Time) (*SnapshotQuality, error)
+	LatestCandidates(context.Context, market.Sector, signal.CandidateMemberStatus) (CandidatePool, error)
+}
+
+func (s *Service) Candidates(
+	ctx context.Context,
+	sector market.Sector,
+	status signal.CandidateMemberStatus,
+) (CandidatePool, error) {
+	if sector != "" && sector != market.SectorCrypto && sector != market.SectorTradFi {
+		return CandidatePool{}, fmt.Errorf("%w: sector 必须为空、CRYPTO 或 TRADFI", ErrInvalidArgument)
+	}
+	if status == "" {
+		status = signal.CandidateMemberActive
+	}
+	if status != signal.CandidateMemberActive && status != signal.CandidateMemberCooldown {
+		return CandidatePool{}, fmt.Errorf("%w: status 必须是 ACTIVE 或 COOLDOWN", ErrInvalidArgument)
+	}
+	return s.repository.LatestCandidates(ctx, sector, status)
 }
 
 type Service struct {

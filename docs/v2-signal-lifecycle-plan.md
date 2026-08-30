@@ -442,3 +442,18 @@ internal/v2/reporter          测试通知与 outbox dispatcher
   `SOURCE_UNAVAILABLE=872`。因此新口径既不会把低活跃当系统故障，也不会掩盖全源断流。
 - MHR-9-1 / R3 状态更新为 `COMPLETED`。下一阶段正式进入 MHR-9-2 / R4-A1，但候选任务
   仍须先完成领域、持久化、幂等与回放测试，不能因阶段开始自动部署。
+
+### 2026-08-30 — MHR-9-2 / R4-A1 代码完成，等待影子部署
+
+- 新增 `candidate-rules-v1`、纯事件时间计算器、Crypto 20/TradFi 10 容量、三窗口退出滞回、
+  30 分钟冷却和逐原因 outcome；完整设计见
+  [R4-A1 轻量候选池执行台账](./v2-candidate-pool-plan.md)。
+- 连续七天 2016 个窗口的流动性敏感性重算表明建议门槛保留 Crypto 96.56%、TradFi 88.63%
+  的原始触发，候选 P50 仍为 11/3，因此 `candidate-rules-v1` 正式启用该门槛。
+- migration 8 新增不可变规则、候选头和逐标的分区 evaluation；复用 `collection_runs`，
+  没有修改 V1、Telegram outbox、现有行情/特征/榜单事实。
+- worker 在排名完成后计算候选，新增 `candidates --as-of` 和 `/api/v2/candidates`；V2 reporter
+  继续禁用，候选进入不会发送 Telegram。
+- Go 全仓测试/vet 通过；jmk 临时隔离库中全部 15 组 PostgreSQL 集成测试通过，临时库已删除。
+- R4-A1 标记为 `CODE_COMPLETE`，正式库仍为 schema 7；下一步必须先备份，再迁移 7 → 8，
+  并完成 24–48 小时影子统计后才能进入 R4-B。

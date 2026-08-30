@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/marketquery"
 	"github.com/shopspring/decimal"
 )
@@ -21,14 +22,16 @@ type fakeChecker struct {
 }
 
 type fakeMarketReader struct {
-	ranking      marketquery.Ranking
-	feature      marketquery.Feature
-	quality      marketquery.Quality
-	err          error
-	sector       market.Sector
-	horizon      market.ReturnHorizon
-	limit        int
-	snapshotAsOf time.Time
+	ranking         marketquery.Ranking
+	feature         marketquery.Feature
+	quality         marketquery.Quality
+	err             error
+	sector          market.Sector
+	horizon         market.ReturnHorizon
+	limit           int
+	snapshotAsOf    time.Time
+	candidates      marketquery.CandidatePool
+	candidateStatus signal.CandidateMemberStatus
 }
 
 func (f *fakeMarketReader) Ranking(_ context.Context, sector market.Sector, horizon market.ReturnHorizon, limit int) (marketquery.Ranking, error) {
@@ -47,6 +50,11 @@ func (f *fakeMarketReader) Quality(context.Context) (marketquery.Quality, error)
 func (f *fakeMarketReader) SnapshotQuality(_ context.Context, asOf time.Time) (*marketquery.SnapshotQuality, error) {
 	f.snapshotAsOf = asOf
 	return &marketquery.SnapshotQuality{Coverage: market.SnapshotCoverage{RuleVersion: market.BinanceUSDMAvailabilityRuleV1}}, f.err
+}
+
+func (f *fakeMarketReader) Candidates(_ context.Context, sector market.Sector, status signal.CandidateMemberStatus) (marketquery.CandidatePool, error) {
+	f.sector, f.candidateStatus = sector, status
+	return f.candidates, f.err
 }
 
 func (f fakeChecker) Ping(context.Context) error { return f.err }
@@ -118,6 +126,21 @@ func TestSnapshotQualityEndpointParsesHistoricalAsOf(t *testing.T) {
 	if response.Code != http.StatusOK || !reader.snapshotAsOf.Equal(time.Date(2026, 8, 22, 4, 0, 0, 0, time.UTC)) ||
 		!strings.Contains(response.Body.String(), market.BinanceUSDMAvailabilityRuleV1) {
 		t.Fatalf("status=%d as_of=%s body=%s", response.Code, reader.snapshotAsOf, response.Body.String())
+	}
+}
+
+func TestCandidateEndpointParsesFilters(t *testing.T) {
+	reader := &fakeMarketReader{candidates: marketquery.CandidatePool{
+		RuleVersion: signal.CandidateRuleVersion1,
+		Items:       []marketquery.CandidateItem{{Symbol: "BTCUSDT", Status: signal.CandidateMemberActive}},
+	}}
+	server := newTestServerWithReader(fakeChecker{}, reader)
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/candidates?sector=crypto&status=active", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || reader.sector != market.SectorCrypto ||
+		reader.candidateStatus != signal.CandidateMemberActive || !strings.Contains(response.Body.String(), "BTCUSDT") {
+		t.Fatalf("status=%d filter=%s/%s body=%s", response.Code, reader.sector, reader.candidateStatus, response.Body.String())
 	}
 }
 

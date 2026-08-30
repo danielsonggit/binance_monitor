@@ -102,6 +102,10 @@ func (r *Runner) calculate(ctx context.Context, asOf time.Time) error {
 		"ranking_groups", result.Rankings.Groups,
 		"ranking_items", result.Rankings.Items,
 		"positive_metrics", result.Rankings.Positive,
+		"candidate_evaluated", result.Candidates.Evaluated,
+		"candidate_active", result.Candidates.Active,
+		"candidate_entered", result.Candidates.Entered,
+		"candidate_exited", result.Candidates.Exited,
 	)
 	if healthy, _, message := r.Health(); !healthy {
 		r.logger.Warn("多周期分析质量低于健康阈值", "as_of", asOf, "reason", message)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/backfill"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/feature"
 	"binance-monitor/internal/ranking"
 )
@@ -22,6 +23,10 @@ type RankingCalculator interface {
 	RunAt(context.Context, time.Time) (ranking.Result, error)
 }
 
+type CandidateCalculator interface {
+	RunAt(context.Context, time.Time) (signal.CandidateWriteResult, error)
+}
+
 type HistoryAuditor interface {
 	Record(context.Context, backfill.Result, time.Time, time.Time) error
 }
@@ -31,13 +36,15 @@ type ReturnPipeline struct {
 	auditor          HistoryAuditor
 	features         FeatureCalculator
 	rankings         RankingCalculator
+	candidates       CandidateCalculator
 	backfillLookback time.Duration
 	backfillWorkers  int
 }
 
 type Result struct {
-	Features feature.Result
-	Rankings ranking.Result
+	Features   feature.Result
+	Rankings   ranking.Result
+	Candidates signal.CandidateWriteResult
 }
 
 func NewReturnPipeline(
@@ -45,14 +52,15 @@ func NewReturnPipeline(
 	auditor HistoryAuditor,
 	features FeatureCalculator,
 	rankings RankingCalculator,
+	candidates CandidateCalculator,
 	backfillLookback time.Duration,
 	backfillWorkers int,
 ) (*ReturnPipeline, error) {
-	if history == nil || auditor == nil || features == nil || rankings == nil || backfillLookback < 24*time.Hour || backfillWorkers <= 0 {
+	if history == nil || auditor == nil || features == nil || rankings == nil || candidates == nil || backfillLookback < 24*time.Hour || backfillWorkers <= 0 {
 		return nil, fmt.Errorf("return pipeline 配置或依赖无效")
 	}
 	return &ReturnPipeline{
-		history: history, auditor: auditor, features: features, rankings: rankings,
+		history: history, auditor: auditor, features: features, rankings: rankings, candidates: candidates,
 		backfillLookback: backfillLookback, backfillWorkers: backfillWorkers,
 	}, nil
 }
@@ -79,5 +87,10 @@ func (p *ReturnPipeline) RunAt(ctx context.Context, asOf time.Time) (Result, err
 		return result, fmt.Errorf("收益计算后生成排名: %w", err)
 	}
 	result.Rankings = rankings
+	candidates, err := p.candidates.RunAt(ctx, asOf)
+	if err != nil {
+		return result, fmt.Errorf("收益排名后生成候选池: %w", err)
+	}
+	result.Candidates = candidates
 	return result, nil
 }

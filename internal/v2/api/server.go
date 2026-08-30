@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/marketquery"
 )
 
@@ -25,6 +26,7 @@ type MarketReader interface {
 	Feature(context.Context, string) (marketquery.Feature, error)
 	Quality(context.Context) (marketquery.Quality, error)
 	SnapshotQuality(context.Context, time.Time) (*marketquery.SnapshotQuality, error)
+	Candidates(context.Context, market.Sector, signal.CandidateMemberStatus) (marketquery.CandidatePool, error)
 }
 
 type Server struct {
@@ -75,7 +77,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v2/features/{symbol}", s.handleFeature)
 	mux.HandleFunc("GET /api/v2/quality", s.handleQuality)
 	mux.HandleFunc("GET /api/v2/quality/snapshots", s.handleSnapshotQuality)
+	mux.HandleFunc("GET /api/v2/candidates", s.handleCandidates)
 	return mux
+}
+
+func (s *Server) handleCandidates(response http.ResponseWriter, request *http.Request) {
+	sector := market.Sector(strings.ToUpper(strings.TrimSpace(request.URL.Query().Get("sector"))))
+	status := signal.CandidateMemberStatus(strings.ToUpper(strings.TrimSpace(request.URL.Query().Get("status"))))
+	ctx, cancel := context.WithTimeout(request.Context(), 3*time.Second)
+	defer cancel()
+	result, err := s.market.Candidates(ctx, sector, status)
+	if err != nil {
+		s.handleQueryError(response, "candidates", err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (s *Server) handleSnapshotQuality(response http.ResponseWriter, request *http.Request) {

@@ -64,7 +64,7 @@ func TestCandidateAnalysisRepositoryReadsOnlyValidClosedDataIntegration(t *testi
 				instrument_id, open_time, close_time, open, high, low, close,
 				volume, quote_volume, trade_count, taker_buy_base_volume,
 				taker_buy_quote_volume, source, received_at
-			) VALUES ($1, $2, $3 - interval '1 millisecond', 100, 110, 90, 101,
+			) VALUES ($1, $2, $3::timestamptz - interval '1 millisecond', 100, 110, 90, 101,
 				1, 1000, 10, 0.5, 500, 'BINANCE_FUTURES', $3)`, instrumentID, openAt, closeAt); err != nil {
 			t.Fatal(err)
 		}

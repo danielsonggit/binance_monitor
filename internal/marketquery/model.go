@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 	"github.com/shopspring/decimal"
 )
 
@@ -92,4 +93,33 @@ type Quality struct {
 	Backfill         *BackfillQuality `json:"backfill,omitempty"`
 	Worker           *WorkerQuality   `json:"worker,omitempty"`
 	Snapshot         *SnapshotQuality `json:"snapshot,omitempty"`
+}
+
+type CandidateItem struct {
+	Symbol             string                       `json:"symbol"`
+	Sector             market.Sector                `json:"sector"`
+	Status             signal.CandidateMemberStatus `json:"status"`
+	EnteredAt          time.Time                    `json:"entered_at"`
+	LastSelectedAt     time.Time                    `json:"last_selected_at"`
+	LastEvaluatedAt    time.Time                    `json:"last_evaluated_at"`
+	ConsecutiveMisses  int                          `json:"consecutive_misses"`
+	CooldownUntil      *time.Time                   `json:"cooldown_until,omitempty"`
+	Availability       market.AvailabilityState     `json:"availability"`
+	Return15m          *decimal.Decimal             `json:"return_15m_percent,omitempty"`
+	Return1h           *decimal.Decimal             `json:"return_1h_percent,omitempty"`
+	Trigger15m         bool                         `json:"trigger_15m"`
+	Trigger1h          bool                         `json:"trigger_1h"`
+	LiquidityQualified bool                         `json:"liquidity_qualified"`
+	Outcome            signal.CandidateOutcome      `json:"outcome"`
+	Reasons            []string                     `json:"reasons"`
+}
+
+type CandidatePool struct {
+	AsOf           time.Time                    `json:"as_of"`
+	RuleVersion    string                       `json:"rule_version"`
+	FeatureVersion string                       `json:"feature_version"`
+	Status         signal.CandidateMemberStatus `json:"status"`
+	Sector         market.Sector                `json:"sector,omitempty"`
+	Count          int                          `json:"count"`
+	Items          []CandidateItem              `json:"items"`
 }

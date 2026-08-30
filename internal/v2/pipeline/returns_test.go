@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/backfill"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/feature"
 	"binance-monitor/internal/ranking"
 )
@@ -31,6 +32,17 @@ type fakeRankings struct {
 	result ranking.Result
 	err    error
 	calls  int
+}
+
+type fakeCandidates struct {
+	result signal.CandidateWriteResult
+	err    error
+	calls  int
+}
+
+func (f *fakeCandidates) RunAt(context.Context, time.Time) (signal.CandidateWriteResult, error) {
+	f.calls++
+	return f.result, f.err
 }
 
 func (f *fakeRankings) RunAt(context.Context, time.Time) (ranking.Result, error) {
@@ -58,7 +70,8 @@ func TestReturnPipelineBackfillsBeforeCalculating(t *testing.T) {
 	auditor := &fakeAuditor{}
 	features := &fakeFeatures{result: feature.Result{Symbols: 2}}
 	rankings := &fakeRankings{result: ranking.Result{Groups: 8}}
-	pipeline, err := NewReturnPipeline(history, auditor, features, rankings, 30*time.Hour, 8)
+	candidates := &fakeCandidates{result: signal.CandidateWriteResult{Active: 3}}
+	pipeline, err := NewReturnPipeline(history, auditor, features, rankings, candidates, 30*time.Hour, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +79,8 @@ func TestReturnPipelineBackfillsBeforeCalculating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.calls != 1 || auditor.calls != 1 || features.calls != 1 || rankings.calls != 1 ||
-		result.Features.Symbols != 2 || result.Rankings.Groups != 8 {
+	if history.calls != 1 || auditor.calls != 1 || features.calls != 1 || rankings.calls != 1 || candidates.calls != 1 ||
+		result.Features.Symbols != 2 || result.Rankings.Groups != 8 || result.Candidates.Active != 3 {
 		t.Fatalf("history=%d audit=%d features=%d rankings=%d result=%#v", history.calls, auditor.calls, features.calls, rankings.calls, result)
 	}
 }
@@ -76,7 +89,7 @@ func TestReturnPipelineStopsOnBackfillSystemError(t *testing.T) {
 	history := &fakeHistory{err: errors.New("database unavailable")}
 	features := &fakeFeatures{}
 	rankings := &fakeRankings{}
-	pipeline, _ := NewReturnPipeline(history, &fakeAuditor{}, features, rankings, 30*time.Hour, 8)
+	pipeline, _ := NewReturnPipeline(history, &fakeAuditor{}, features, rankings, &fakeCandidates{}, 30*time.Hour, 8)
 	if _, err := pipeline.RunAt(context.Background(), time.Now()); err == nil || features.calls != 0 {
 		t.Fatalf("error=%v feature calls=%d", err, features.calls)
 	}
@@ -88,7 +101,7 @@ func TestReturnPipelineCalculatesAndLetsQualityGateHandleSymbolGaps(t *testing.T
 	}}
 	features := &fakeFeatures{result: feature.Result{InvalidMetrics: 1}}
 	rankings := &fakeRankings{}
-	pipeline, _ := NewReturnPipeline(history, &fakeAuditor{}, features, rankings, 30*time.Hour, 8)
+	pipeline, _ := NewReturnPipeline(history, &fakeAuditor{}, features, rankings, &fakeCandidates{}, 30*time.Hour, 8)
 	result, err := pipeline.RunAt(context.Background(), time.Now())
 	if err != nil || features.calls != 1 || rankings.calls != 1 || result.Features.InvalidMetrics != 1 {
 		t.Fatalf("error=%v feature calls=%d result=%#v", err, features.calls, result)
@@ -98,7 +111,7 @@ func TestReturnPipelineCalculatesAndLetsQualityGateHandleSymbolGaps(t *testing.T
 func TestReturnPipelineDoesNotRankWhenFeatureCalculationFails(t *testing.T) {
 	features := &fakeFeaturesWithError{err: errors.New("feature write failed")}
 	rankings := &fakeRankings{}
-	pipeline, _ := NewReturnPipeline(&fakeHistory{}, &fakeAuditor{}, features, rankings, 30*time.Hour, 8)
+	pipeline, _ := NewReturnPipeline(&fakeHistory{}, &fakeAuditor{}, features, rankings, &fakeCandidates{}, 30*time.Hour, 8)
 	if _, err := pipeline.RunAt(context.Background(), time.Now()); err == nil || rankings.calls != 0 {
 		t.Fatalf("error=%v ranking calls=%d", err, rankings.calls)
 	}
@@ -106,10 +119,22 @@ func TestReturnPipelineDoesNotRankWhenFeatureCalculationFails(t *testing.T) {
 
 func TestReturnPipelineSurfacesRankingFailureAfterFeatures(t *testing.T) {
 	rankings := &fakeRankings{err: errors.New("ranking write failed")}
-	pipeline, _ := NewReturnPipeline(&fakeHistory{}, &fakeAuditor{}, &fakeFeatures{result: feature.Result{Written: 2}}, rankings, 30*time.Hour, 8)
+	pipeline, _ := NewReturnPipeline(&fakeHistory{}, &fakeAuditor{}, &fakeFeatures{result: feature.Result{Written: 2}}, rankings, &fakeCandidates{}, 30*time.Hour, 8)
 	result, err := pipeline.RunAt(context.Background(), time.Now())
 	if err == nil || result.Features.Written != 2 {
 		t.Fatalf("error=%v result=%#v", err, result)
+	}
+}
+
+func TestReturnPipelineSurfacesCandidateFailureAfterRankings(t *testing.T) {
+	candidates := &fakeCandidates{err: errors.New("candidate write failed")}
+	pipeline, _ := NewReturnPipeline(
+		&fakeHistory{}, &fakeAuditor{}, &fakeFeatures{result: feature.Result{Written: 2}},
+		&fakeRankings{result: ranking.Result{Groups: 8}}, candidates, 30*time.Hour, 8,
+	)
+	result, err := pipeline.RunAt(context.Background(), time.Now())
+	if err == nil || result.Rankings.Groups != 8 || candidates.calls != 1 {
+		t.Fatalf("error=%v result=%#v calls=%d", err, result, candidates.calls)
 	}
 }
 

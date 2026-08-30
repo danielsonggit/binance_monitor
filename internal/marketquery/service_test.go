@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 )
 
 type repositoryStub struct {
@@ -30,6 +31,9 @@ func (*repositoryStub) LatestQuality(context.Context) (Quality, error) { return 
 func (*repositoryStub) SnapshotQuality(context.Context, time.Time) (*SnapshotQuality, error) {
 	return &SnapshotQuality{}, nil
 }
+func (*repositoryStub) LatestCandidates(context.Context, market.Sector, signal.CandidateMemberStatus) (CandidatePool, error) {
+	return CandidatePool{}, nil
+}
 
 func TestServiceValidatesRankingArguments(t *testing.T) {
 	service, _ := NewService(&repositoryStub{})
@@ -46,6 +50,16 @@ func TestServiceValidatesRankingArguments(t *testing.T) {
 		if _, err := service.Ranking(context.Background(), test.sector, test.horizon, test.limit); !errors.Is(err, ErrInvalidArgument) {
 			t.Fatalf("Ranking(%q, %q, %d) error=%v", test.sector, test.horizon, test.limit, err)
 		}
+	}
+}
+
+func TestServiceValidatesCandidateFilters(t *testing.T) {
+	service, _ := NewService(&repositoryStub{})
+	if _, err := service.Candidates(context.Background(), "OTHER", signal.CandidateMemberActive); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("sector error=%v", err)
+	}
+	if _, err := service.Candidates(context.Background(), market.SectorCrypto, "STALE"); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("status error=%v", err)
 	}
 }
 

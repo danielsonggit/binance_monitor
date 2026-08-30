@@ -12,10 +12,12 @@ import (
 	"binance-monitor/internal/binance"
 	"binance-monitor/internal/binancevision"
 	"binance-monitor/internal/binancews"
+	"binance-monitor/internal/candidatepool"
 	"binance-monitor/internal/catalog"
 	"binance-monitor/internal/collector"
 	legacyconfig "binance-monitor/internal/config"
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/feature"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/marketdata"
@@ -50,6 +52,7 @@ func NewCommands(stdout, stderr io.Writer) []*cobra.Command {
 		newDatabaseCommand("features", "回补行情并计算 V2 多周期收益率与排名", stdout, stderr, runFeatures),
 		newRankingsCommand(stdout, stderr),
 		newCandidateAnalysisCommand(stdout, stderr),
+		newCandidatePoolCommand(stdout, stderr),
 		newDatabaseCommand("report", "预览最新 V2 多周期 Telegram 报告，不发送", stdout, stderr, runReport),
 		newDatabaseCommand("reporter", "运行 V2 Telegram 定时报表与可靠发送器", stdout, stderr, runReporter),
 		newWatchdogCommand(stdout, stderr),
@@ -143,6 +146,58 @@ func newRankingsCommand(stdout, stderr io.Writer) *cobra.Command {
 				"rankings 完成：as_of=%s groups=%d active_metrics=%d eligible=%d positive=%d items=%d written=%d\n",
 				result.AsOf.Format(time.RFC3339), result.Groups, result.ActiveMetrics,
 				result.Eligible, result.Positive, result.Items, result.Written,
+			)
+			return err
+		},
+	}
+	bindFlags(command, &opts)
+	command.Flags().StringVar(&asOfRaw, "as-of", "", "指定已落库的 UTC RFC3339 五分钟时点；默认当前时点")
+	return command
+}
+
+func newCandidatePoolCommand(stdout, stderr io.Writer) *cobra.Command {
+	var opts options
+	var asOfRaw string
+	command := &cobra.Command{
+		Use:   "candidates",
+		Short: "从已落库特征和质量事实生成或重放 V2 候选池",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			settings, logger, err := loadSettings(opts, stderr)
+			if err != nil {
+				return err
+			}
+			asOf := time.Now().UTC().Truncate(market.SnapshotInterval)
+			if asOfRaw != "" {
+				asOf, err = time.Parse(time.RFC3339, asOfRaw)
+				if err != nil {
+					return fmt.Errorf("--as-of 必须是 RFC3339 时间: %w", err)
+				}
+				asOf = asOf.UTC()
+				if !asOf.Equal(asOf.Truncate(market.SnapshotInterval)) {
+					return fmt.Errorf("--as-of 必须按 %s 对齐", market.SnapshotInterval)
+				}
+			}
+			resources, err := postgres.OpenResources(command.Context(), settings.DatabaseURL, settings.DatabaseMaxConns)
+			if err != nil {
+				return err
+			}
+			defer resources.Close()
+			service, err := newCandidatePoolService(resources)
+			if err != nil {
+				return err
+			}
+			result, err := service.RunAt(command.Context(), asOf)
+			if err != nil {
+				return err
+			}
+			logger.Info("手动候选池生成完成", "as_of", result.AsOf, "already_applied", result.AlreadyApplied)
+			_, err = fmt.Fprintf(stdout,
+				"candidates 完成：as_of=%s evaluated=%d active=%d entered=%d continued=%d held=%d exited=%d rejected_quality=%d rejected_momentum=%d rejected_liquidity=%d rejected_capacity=%d rejected_cooldown=%d already_applied=%t\n",
+				result.AsOf.Format(time.RFC3339), result.Evaluated, result.Active, result.Entered,
+				result.Continued, result.Held, result.Exited, result.RejectedQuality,
+				result.RejectedMomentum, result.RejectedLiquidity, result.RejectedCapacity,
+				result.RejectedCooldown, result.AlreadyApplied,
 			)
 			return err
 		},
@@ -262,10 +317,11 @@ func runFeatures(
 		return fmt.Errorf("编码 feature invalid reasons: %w", err)
 	}
 	_, err = fmt.Fprintf(stdout,
-		"features 完成：as_of=%s symbols=%d valid_metrics=%d invalid_metrics=%d feature_rows=%d ranking_groups=%d ranking_items=%d eligible=%d positive=%d reasons=%s\n",
+		"features 完成：as_of=%s symbols=%d valid_metrics=%d invalid_metrics=%d feature_rows=%d ranking_groups=%d ranking_items=%d eligible=%d positive=%d candidate_active=%d candidate_entered=%d candidate_exited=%d reasons=%s\n",
 		result.Features.AsOf.Format(time.RFC3339), result.Features.Symbols, result.Features.ValidMetrics,
 		result.Features.InvalidMetrics, result.Features.Written, result.Rankings.Groups,
-		result.Rankings.Items, result.Rankings.Eligible, result.Rankings.Positive, reasons,
+		result.Rankings.Items, result.Rankings.Eligible, result.Rankings.Positive,
+		result.Candidates.Active, result.Candidates.Entered, result.Candidates.Exited, reasons,
 	)
 	return err
 }
@@ -496,13 +552,28 @@ func newReturnPipeline(
 	if err != nil {
 		return nil, err
 	}
+	candidates, err := newCandidatePoolService(resources)
+	if err != nil {
+		return nil, err
+	}
 	return v2pipeline.NewReturnPipeline(
 		history,
 		postgres.NewBackfillAuditRepository(resources.Pool),
 		features,
 		rankings,
+		candidates,
 		settings.BackfillLookback,
 		settings.BackfillConcurrency,
+	)
+}
+
+func newCandidatePoolService(resources *postgres.Resources) (*candidatepool.Service, error) {
+	calculator, err := candidatepool.NewCalculator(signal.CandidateRulesV1())
+	if err != nil {
+		return nil, err
+	}
+	return candidatepool.NewService(
+		postgres.NewCandidatePoolRepository(resources.Pool), calculator, candidatepool.SystemClock{},
 	)
 }
 

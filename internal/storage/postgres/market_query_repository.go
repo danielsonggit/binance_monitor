@@ -8,14 +8,99 @@ import (
 	"time"
 
 	"binance-monitor/internal/domain/market"
+	"binance-monitor/internal/domain/signal"
 	"binance-monitor/internal/marketquery"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
 type MarketQueryRepository struct {
 	pool *pgxpool.Pool
+}
+
+func (r *MarketQueryRepository) LatestCandidates(
+	ctx context.Context,
+	sector market.Sector,
+	status signal.CandidateMemberStatus,
+) (marketquery.CandidatePool, error) {
+	if r == nil || r.pool == nil {
+		return marketquery.CandidatePool{}, fmt.Errorf("market query PostgreSQL pool 不能为空")
+	}
+	result := marketquery.CandidatePool{Sector: sector, Status: status}
+	err := r.pool.QueryRow(ctx, `
+		SELECT window_end, metadata->>'rule_version', metadata->>'feature_version'
+		FROM collection_runs
+		WHERE job_type = 'CANDIDATE_POOL_5M' AND status = 'SUCCEEDED'
+			AND metadata->>'rule_version' = $1
+		ORDER BY window_end DESC
+		LIMIT 1`, signal.CandidateRuleVersion1).Scan(&result.AsOf, &result.RuleVersion, &result.FeatureVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return marketquery.CandidatePool{}, marketquery.ErrNotFound
+	}
+	if err != nil {
+		return marketquery.CandidatePool{}, fmt.Errorf("查询最新 candidate pool run: %w", err)
+	}
+	result.AsOf = result.AsOf.UTC()
+	rows, err := r.pool.Query(ctx, `
+		SELECT i.symbol, i.sector, m.status, m.entered_at, m.last_selected_at,
+			m.last_evaluated_at, m.consecutive_misses, m.cooldown_until,
+			e.availability_state, e.return_15m, e.return_1h,
+			e.trigger_15m, e.trigger_1h, e.liquidity_qualified, e.outcome, e.reasons_json
+		FROM candidate_pool_members m
+		JOIN instruments i ON i.id = m.instrument_id
+		JOIN candidate_evaluations e
+			ON e.instrument_id = m.instrument_id
+			AND e.as_of = $2
+			AND e.rule_version = m.rule_version
+		WHERE m.rule_version = $1 AND m.status = $3
+			AND ($4 = '' OR i.sector = $4)
+		ORDER BY i.sector, e.priority_ratio DESC, i.symbol`,
+		result.RuleVersion, result.AsOf, status, sector)
+	if err != nil {
+		return marketquery.CandidatePool{}, fmt.Errorf("查询 latest candidate members: %w", err)
+	}
+	defer rows.Close()
+	result.Items = make([]marketquery.CandidateItem, 0)
+	for rows.Next() {
+		var item marketquery.CandidateItem
+		var cooldown pgtype.Timestamptz
+		var return15m, return1h decimal.NullDecimal
+		var reasons []byte
+		if err := rows.Scan(
+			&item.Symbol, &item.Sector, &item.Status, &item.EnteredAt, &item.LastSelectedAt,
+			&item.LastEvaluatedAt, &item.ConsecutiveMisses, &cooldown,
+			&item.Availability, &return15m, &return1h, &item.Trigger15m, &item.Trigger1h,
+			&item.LiquidityQualified, &item.Outcome, &reasons,
+		); err != nil {
+			return marketquery.CandidatePool{}, fmt.Errorf("读取 latest candidate member: %w", err)
+		}
+		item.EnteredAt = item.EnteredAt.UTC()
+		item.LastSelectedAt = item.LastSelectedAt.UTC()
+		item.LastEvaluatedAt = item.LastEvaluatedAt.UTC()
+		if cooldown.Valid {
+			value := cooldown.Time.UTC()
+			item.CooldownUntil = &value
+		}
+		if return15m.Valid {
+			value := return15m.Decimal
+			item.Return15m = &value
+		}
+		if return1h.Valid {
+			value := return1h.Decimal
+			item.Return1h = &value
+		}
+		if err := json.Unmarshal(reasons, &item.Reasons); err != nil {
+			return marketquery.CandidatePool{}, fmt.Errorf("解析 latest candidate reasons: %w", err)
+		}
+		result.Items = append(result.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return marketquery.CandidatePool{}, fmt.Errorf("遍历 latest candidate members: %w", err)
+	}
+	result.Count = len(result.Items)
+	return result, nil
 }
 
 func NewMarketQueryRepository(pool *pgxpool.Pool) *MarketQueryRepository {

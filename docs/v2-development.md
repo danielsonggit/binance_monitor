@@ -3,7 +3,7 @@
 > 本文只记录已实现能力和运行方式。产品终点、阶段顺序、范围边界和当前执行点以
 > [总体产品与开发 Roadmap](./v2-roadmap.md) 为准。
 
-更新时间：2026-08-28
+更新时间：2026-08-30
 
 当前分支：`feature/v2-market-radar`
 
@@ -11,7 +11,7 @@
 
 - Phase 0：产品与架构设计已完成；
 - Phase 1：数据库与采集开发项完成，固定 7 天窗口三条核心流水线均为 `2016/2016`、缺口 0、`FAILED` 0；
-- Phase 2：多周期收益率、质量门禁和分板块排名已完成；MHR-9-1 已部署 migration 7，当前观察市场状态与双覆盖率 24 小时；不改线上状态的 R4-A0 七天候选分布分析已完成，R3 验收后再开发持久化候选池；
+- Phase 2：多周期收益率、质量门禁和分板块排名已完成；MHR-9-1 / R3 已完成三层覆盖率与真实断流验收；R4-A0 已完成，R4-A1 候选池代码完成并等待 schema 8 影子部署；
 - Phase 3：MHR-6 定时报表、可靠 outbox 和只读查询 API已完成；V2 reporter 继续禁用；
 - Phase 4 及以后：尚未开始。
 
@@ -19,7 +19,8 @@
 
 1. CLI 已统一使用 Cobra；V1 默认 CLI 和部署行为保持兼容，显式 `binance-monitor v1` 也可进入 V1。
 2. Cobra 命令树注册了 `migrate`、`worker`、`api`、`backfill`、`features`、`rankings`、
-   `candidate-analysis`、`report`、`reporter` 九个 V2 命令；`candidate-analysis` 是一次性只读研究命令，不是常驻角色。
+   `candidate-analysis`、`candidates`、`report`、`reporter` 十个 V2 命令；`candidate-analysis`
+   是一次性只读研究，`candidates` 是可幂等写入/重放的候选任务。
 3. V2 配置位于 `internal/v2/config`，不把数据库和 Web 配置混入 V1。
 4. PostgreSQL 访问位于 `internal/storage/postgres`，使用 pgx/v5 连接池。
 5. migration 使用 Go embed 打入二进制，具有 advisory lock、事务、版本和 checksum 防篡改。
@@ -29,6 +30,8 @@
    - 分区表 `klines_15m`；
    - 分区表 `return_feature_snapshots`；
    - 分区榜单头 `ranking_snapshots` 与榜单项 `ranking_snapshot_items`；
+   - 不可变 `candidate_rule_versions`、候选头 `candidate_pool_members` 与分区事实
+     `candidate_evaluations`；
    - 可靠通知 `notification_outbox` 与逐 Chat/分片审计 `notification_deliveries`；
    - 采集审计 `collection_runs`；
    - 组件心跳 `system_heartbeats`。
@@ -40,6 +43,7 @@
    - `GET /api/v2/features/{symbol}`；
    - `GET /api/v2/quality`；
    - `GET /api/v2/quality/snapshots?as_of=<RFC3339>`，查询最新或指定 5 分钟时点的 raw/session-adjusted 快照质量。
+   - `GET /api/v2/candidates?sector=CRYPTO&status=ACTIVE`，查询最新候选池与当时证据。
 9. `compose.v2.yaml` 与 V1 `compose.yaml` 完全分离，使用独立 project、网络和数据卷。
 10. 已通过真实 Docker/PostgreSQL 验证：首次 migration 应用 1 个版本，第二次应用 0 个版本；worker 心跳为 `HEALTHY`；API live/ready 均为 200。
 11. 已完成 Binance 合约目录链路：
@@ -176,6 +180,17 @@ binance-monitor candidate-analysis --lookback 168h --format markdown \
 默认以数据库最新完整 feature 时点为结束时间，也可以使用 `--end` 指定 UTC RFC3339
 五分钟时点。该命令不写数据库、不访问 Binance、不发送 Telegram；口径和七天实测结果见
 [R4-A0 候选指标分布分析](./v2-candidate-distribution-analysis.md)。
+
+生成或幂等重放轻量候选池：
+
+```bash
+binance-monitor candidates --as-of 2026-08-30T02:30:00Z \
+  --env-file /absolute/path/.env.v2
+```
+
+候选任务使用 `candidate-rules-v1`，执行质量、动量、流动性、板块容量、三窗口退出滞回和
+30 分钟冷却，并逐标的写入 PostgreSQL。完整口径和影子部署门禁见
+[R4-A1 轻量候选池执行台账](./v2-candidate-pool-plan.md)。
 
 预览最新多周期报告，不调用 Telegram：
 
