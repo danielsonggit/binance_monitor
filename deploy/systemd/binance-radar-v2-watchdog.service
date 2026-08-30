@@ -1,0 +1,32 @@
+[Unit]
+Description=Binance Market Radar V2 independent health watchdog
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=/home/daniel/services/binance-radar-v2
+Environment=BINANCE_RADAR_V2_DIR=/home/daniel/services/binance-radar-v2
+Environment=WATCHDOG_DRY_RUN=true
+ExecStart=/home/daniel/services/binance-radar-v2/run-v2 watchdog
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/daniel/services/binance-radar-v2/state
+MemoryMax=128M
+CPUQuota=50%
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=binance-radar-v2-watchdog
+
+[Install]
+WantedBy=default.target

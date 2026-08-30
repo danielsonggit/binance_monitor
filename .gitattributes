@@ -1,0 +1,4 @@
+# Executed SQL migrations are byte-for-byte immutable because their raw SHA-256
+# is stored in schema_migrations. Do not make a deployed migration fail lint
+# merely because its already-recorded bytes end with an extra blank line.
+internal/storage/postgres/migrations/*.sql whitespace=-blank-at-eof

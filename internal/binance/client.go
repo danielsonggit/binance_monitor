@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"binance-monitor/internal/domain/market"
 	"binance-monitor/internal/httpjson"
 	"binance-monitor/internal/model"
 )
@@ -23,6 +24,9 @@ type exchangeSymbol struct {
 	ContractType       string   `json:"contractType"`
 	UnderlyingType     string   `json:"underlyingType"`
 	UnderlyingSubTypes []string `json:"underlyingSubType"`
+	PricePrecision     int      `json:"pricePrecision"`
+	QuantityPrecision  int      `json:"quantityPrecision"`
+	OnboardDate        int64    `json:"onboardDate"`
 }
 
 type tickerResponse struct {
@@ -36,26 +40,44 @@ type tickerResponse struct {
 type Client struct {
 	baseURL string
 	http    *httpjson.Client
+	limiter RequestWeightLimiter
 }
+
+type RequestWeightLimiter interface {
+	Wait(context.Context, int) error
+}
+
+const ticker24hAllSymbolsWeight = 40
 
 func New(baseURL string, httpClient *httpjson.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: httpClient}
+}
+
+func NewWithWeightLimiter(
+	baseURL string,
+	httpClient *httpjson.Client,
+	limiter RequestWeightLimiter,
+) (*Client, error) {
+	if limiter == nil {
+		return nil, fmt.Errorf("Binance 请求权重 limiter 不能为空")
+	}
+	return &Client{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		http:    httpClient,
+		limiter: limiter,
+	}, nil
 }
 
 func (c *Client) FetchMarket(
 	ctx context.Context,
 	quoteAssets []string,
 ) (map[string]model.Contract, map[string]model.Ticker, error) {
-	var exchange exchangeInfoResponse
-	if err := c.http.JSON(
-		ctx,
-		http.MethodGet,
-		c.baseURL+"/fapi/v1/exchangeInfo",
-		nil,
-		nil,
-		&exchange,
-	); err != nil {
-		return nil, nil, fmt.Errorf("读取 Binance 合约信息: %w", err)
+	contracts, err := c.FetchContracts(ctx, quoteAssets)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.waitRequestWeight(ctx, ticker24hAllSymbolsWeight); err != nil {
+		return nil, nil, fmt.Errorf("等待 Binance 全市场 24 小时 ticker 请求权重: %w", err)
 	}
 
 	var tickerRows []tickerResponse
@@ -69,10 +91,73 @@ func (c *Client) FetchMarket(
 	); err != nil {
 		return nil, nil, fmt.Errorf("读取 Binance 24 小时行情: %w", err)
 	}
-	return ParseContracts(exchange.Symbols, quoteAssets), ParseTickers(tickerRows), nil
+	return contracts, ParseTickers(tickerRows), nil
+}
+
+func (c *Client) FetchContracts(
+	ctx context.Context,
+	quoteAssets []string,
+) (map[string]model.Contract, error) {
+	if err := c.waitRequestWeight(ctx, 1); err != nil {
+		return nil, fmt.Errorf("等待 Binance exchangeInfo 请求权重: %w", err)
+	}
+	var exchange exchangeInfoResponse
+	if err := c.http.JSON(
+		ctx,
+		http.MethodGet,
+		c.baseURL+"/fapi/v1/exchangeInfo",
+		nil,
+		nil,
+		&exchange,
+	); err != nil {
+		return nil, fmt.Errorf("读取 Binance 合约信息: %w", err)
+	}
+	return ParseContracts(exchange.Symbols, quoteAssets), nil
+}
+
+func (c *Client) FetchContractCatalog(
+	ctx context.Context,
+	quoteAssets []string,
+) (map[string]model.Contract, error) {
+	if err := c.waitRequestWeight(ctx, 1); err != nil {
+		return nil, fmt.Errorf("等待 Binance exchangeInfo 请求权重: %w", err)
+	}
+	var exchange exchangeInfoResponse
+	if err := c.http.JSON(
+		ctx,
+		http.MethodGet,
+		c.baseURL+"/fapi/v1/exchangeInfo",
+		nil,
+		nil,
+		&exchange,
+	); err != nil {
+		return nil, fmt.Errorf("读取 Binance 合约目录: %w", err)
+	}
+	return ParseContractCatalog(exchange.Symbols, quoteAssets), nil
+}
+
+func (c *Client) waitRequestWeight(ctx context.Context, weight int) error {
+	if c == nil {
+		return fmt.Errorf("Binance client 不能为空")
+	}
+	if c.limiter == nil {
+		return nil
+	}
+	return c.limiter.Wait(ctx, weight)
 }
 
 func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {
+	catalog := ParseContractCatalog(rows, quoteAssets)
+	result := make(map[string]model.Contract, len(catalog))
+	for symbol, contract := range catalog {
+		if contract.Status == string(market.ExchangeStatusTrading) {
+			result[symbol] = contract
+		}
+	}
+	return result
+}
+
+func ParseContractCatalog(rows []exchangeSymbol, quoteAssets []string) map[string]model.Contract {
 	allowedQuotes := make(map[string]struct{}, len(quoteAssets))
 	for _, quote := range quoteAssets {
 		allowedQuotes[strings.ToUpper(quote)] = struct{}{}
@@ -83,7 +168,7 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 		status := strings.ToUpper(row.Status)
 		contractType := strings.ToUpper(row.ContractType)
 		quote := strings.ToUpper(row.QuoteAsset)
-		if status != "TRADING" {
+		if status == "" {
 			continue
 		}
 		if _, allowed := allowedQuotes[quote]; !allowed {
@@ -106,12 +191,16 @@ func ParseContracts(rows []exchangeSymbol, quoteAssets []string) map[string]mode
 		}
 		result[symbol] = model.Contract{
 			Symbol:             symbol,
+			Status:             status,
 			BaseAsset:          baseAsset,
 			QuoteAsset:         quote,
 			ContractType:       contractType,
 			UnderlyingType:     strings.ToUpper(row.UnderlyingType),
 			UnderlyingSubTypes: append([]string(nil), row.UnderlyingSubTypes...),
 			Board:              board,
+			PricePrecision:     row.PricePrecision,
+			QuantityPrecision:  row.QuantityPrecision,
+			OnboardDateMS:      row.OnboardDate,
 		}
 	}
 	return result

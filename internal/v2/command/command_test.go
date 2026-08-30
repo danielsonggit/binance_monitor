@@ -1,0 +1,68 @@
+package command
+
+import (
+	"bytes"
+	"context"
+	"testing"
+)
+
+func TestCommandsHaveUniqueNames(t *testing.T) {
+	seen := make(map[string]struct{})
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		if _, exists := seen[command.Name()]; exists {
+			t.Fatalf("duplicate command %q", command.Name())
+		}
+		seen[command.Name()] = struct{}{}
+	}
+	for _, expected := range []string{"migrate", "worker", "api", "backfill", "features", "rankings", "candidate-analysis", "report", "reporter"} {
+		if _, exists := seen[expected]; !exists {
+			t.Errorf("missing command %q", expected)
+		}
+	}
+}
+
+func TestCandidateAnalysisCommandExposesResearchFlags(t *testing.T) {
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		if command.Name() != "candidate-analysis" {
+			continue
+		}
+		for _, name := range []string{"end", "lookback", "format"} {
+			if command.Flags().Lookup(name) == nil {
+				t.Fatalf("candidate-analysis command missing --%s", name)
+			}
+		}
+		return
+	}
+	t.Fatal("candidate-analysis command not found")
+}
+
+func TestRankingsCommandExposesReplayTimeFlag(t *testing.T) {
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		if command.Name() == "rankings" {
+			if command.Flags().Lookup("as-of") == nil {
+				t.Fatal("rankings command missing --as-of")
+			}
+			return
+		}
+	}
+	t.Fatal("rankings command not found")
+}
+
+func TestHelpDoesNotRequireDatabase(t *testing.T) {
+	for _, command := range NewCommands(&bytes.Buffer{}, &bytes.Buffer{}) {
+		command.SetArgs([]string{"--help"})
+		command.SetContext(context.Background())
+		if err := command.Execute(); err != nil {
+			t.Fatalf("%s --help error = %v", command.Name(), err)
+		}
+	}
+}
+
+func TestCommandsRejectPositionals(t *testing.T) {
+	command := NewCommands(&bytes.Buffer{}, &bytes.Buffer{})[0]
+	command.SetArgs([]string{"unexpected"})
+	command.SetContext(context.Background())
+	if err := command.Execute(); err == nil {
+		t.Fatal("expected positional argument error")
+	}
+}

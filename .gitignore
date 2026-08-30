@@ -1,4 +1,5 @@
 .env
+.env.v2
 bin/
 coverage.out
 *.test

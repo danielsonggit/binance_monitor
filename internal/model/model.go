@@ -9,12 +9,16 @@ const (
 
 type Contract struct {
 	Symbol             string
+	Status             string
 	BaseAsset          string
 	QuoteAsset         string
 	ContractType       string
 	UnderlyingType     string
 	UnderlyingSubTypes []string
 	Board              Board
+	PricePrecision     int
+	QuantityPrecision  int
+	OnboardDateMS      int64
 }
 
 type Ticker struct {

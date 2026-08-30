@@ -7,6 +7,22 @@
 
 `24:00` 与次日 `00:00` 是同一时刻，因此每天实际有 6 个不重复的推送时点。
 
+> V2 市场雷达正在 `feature/v2-market-radar` 分支开发。V2 的产品、业务架构、
+> 技术架构和执行计划参见 [总体产品与开发 Roadmap](docs/v2-roadmap.md) 与
+> [docs/README.md](docs/README.md)。当前 V1 行为保持不变。
+
+V2 当前已完成 15 分钟 K 线采集、PostgreSQL 幂等存储、至少 30 小时历史回补、
+15m/1h/4h/24h 收益率和质量门禁，以及 Crypto/TradFi 分板块确定性 Top 5。
+已完成 UTC 日优先使用 Binance 官方校验归档，当前日和缺口使用 Futures REST；`features`
+命令和 worker 共用五分钟“回补 → 收益 → 排名”流水线，`rankings --as-of` 支持历史时点重放。执行方法、
+环境变量和验收结果见 [V2 开发进度](docs/v2-development.md) 与
+[多周期 Top 5 执行台账](docs/v2-multi-horizon-top5-plan.md)。候选深度特征、可解释评分和
+信号状态机的后续开发以 [MHR-9 执行台账](docs/v2-signal-lifecycle-plan.md) 为准。
+候选池编码前的七天分布基线、指标定义和冷启动约束见
+[R4-A0 候选指标分布分析](docs/v2-candidate-distribution-analysis.md)。
+轻量候选池的版本化规则、容量、退出滞回、持久化和部署门禁见
+[R4-A1 执行台账](docs/v2-candidate-pool-plan.md)。
+
 ## 功能
 
 - 自动识别 Binance TradFi 与 Crypto 永续合约。
@@ -21,7 +37,8 @@
 - 整点执行失败后，在宽限期内每分钟重试。
 - 支持 Telegram 论坛群组的指定话题。
 - 资产资料通过 `go:embed` 编入二进制，部署时不依赖项目源文件。
-- 只使用 Go 标准库，没有第三方 Go 依赖。
+- V1 核心业务保持轻量；统一 CLI 使用 Cobra。V2 按边界引入 pgx、Binance 官方 SDK 和
+  shopspring/decimal，具体版本与隔离规则见 `docs/v2-development.md`。
 
 ## 数据口径
 
@@ -78,9 +95,12 @@ Crypto 涨幅前 5｜代币 / 合约 / 最新价 / 24h
 │   ├── app/                   # 单次报告任务编排
 │   ├── binance/               # Binance 公共接口和响应解析
 │   ├── catalog/               # 内嵌标的简介资料库
+│   ├── candidateanalysis/     # R4 候选指标只读分布研究
+│   ├── candidatepool/         # R4 版本化候选、容量和退出滞回
 │   ├── config/                # 环境变量与 .env 配置
 │   ├── httpjson/              # JSON HTTP、超时和重试
 │   ├── model/                 # 核心数据结构
+│   ├── domain/                # V2 市场与信号领域模型
 │   ├── ranking/               # 涨跌榜筛选与排序
 │   ├── report/                # Telegram HTML 报告渲染
 │   ├── scheduler/             # 定时、宽限期和推送去重

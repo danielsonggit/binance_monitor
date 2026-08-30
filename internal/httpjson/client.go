@@ -8,10 +8,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
-const maxErrorBody = 500
+const (
+	maxErrorBody  = 500
+	maxRetryDelay = 30 * time.Second
+)
 
 type Client struct {
 	httpClient *http.Client
@@ -19,9 +24,11 @@ type Client struct {
 }
 
 type StatusError struct {
-	Code int
-	URL  string
-	Body string
+	Code          int
+	URL           string
+	Body          string
+	RetryAfter    time.Duration
+	HasRetryAfter bool
 }
 
 func (e *StatusError) Error() string {
@@ -31,12 +38,30 @@ func (e *StatusError) Error() string {
 func New(timeout time.Duration, maxRetries int) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: timeout},
-		maxRetries: maxRetries,
+		maxRetries: normalizedAttempts(maxRetries),
 	}
 }
 
+func NewWithProxy(timeout time.Duration, maxRetries int, proxyURL string) (*Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyURL != "" {
+		parsed, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("解析 HTTP proxy URL: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(parsed)
+	}
+	return &Client{
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+		maxRetries: normalizedAttempts(maxRetries),
+	}, nil
+}
+
 func NewWithHTTPClient(client *http.Client, maxRetries int) *Client {
-	return &Client{httpClient: client, maxRetries: maxRetries}
+	return &Client{httpClient: client, maxRetries: normalizedAttempts(maxRetries)}
 }
 
 func (c *Client) JSON(
@@ -98,9 +123,16 @@ func (c *Client) JSON(
 				if len(detail) > maxErrorBody {
 					detail = detail[:maxErrorBody]
 				}
-				statusErr := &StatusError{Code: response.StatusCode, URL: endpoint, Body: detail}
+				retryAfter, hasRetryAfter := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
+				statusErr := &StatusError{
+					Code:          response.StatusCode,
+					URL:           endpoint,
+					Body:          detail,
+					RetryAfter:    retryAfter,
+					HasRetryAfter: hasRetryAfter,
+				}
 				lastErr = statusErr
-				if response.StatusCode != http.StatusTooManyRequests && response.StatusCode < 500 {
+				if !isRetriableStatus(response.StatusCode) {
 					return statusErr
 				}
 			} else if err := json.Unmarshal(payload, out); err != nil {
@@ -111,10 +143,7 @@ func (c *Client) JSON(
 		}
 
 		if attempt+1 < c.maxRetries {
-			delay := time.Duration(1<<attempt) * time.Second
-			if delay > 4*time.Second {
-				delay = 4 * time.Second
-			}
+			delay := retryDelay(attempt, lastErr)
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
@@ -125,4 +154,56 @@ func (c *Client) JSON(
 		}
 	}
 	return fmt.Errorf("请求失败（已尝试 %d 次）：%s；%w", c.maxRetries, endpoint, lastErr)
+}
+
+func normalizedAttempts(value int) int {
+	if value < 1 {
+		return 1
+	}
+	return value
+}
+
+func isRetriableStatus(code int) bool {
+	return code == http.StatusTeapot ||
+		code == http.StatusTooManyRequests ||
+		(code >= http.StatusInternalServerError && code <= 599)
+}
+
+func retryDelay(attempt int, err error) time.Duration {
+	if statusErr, ok := err.(*StatusError); ok && statusErr.HasRetryAfter {
+		if statusErr.RetryAfter < 0 {
+			return 0
+		}
+		if statusErr.RetryAfter > maxRetryDelay {
+			return maxRetryDelay
+		}
+		return statusErr.RetryAfter
+	}
+	if attempt >= 2 {
+		return 4 * time.Second
+	}
+	delay := time.Duration(1<<attempt) * time.Second
+	return delay
+}
+
+func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if seconds < 0 {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	value, err := http.ParseTime(raw)
+	if err != nil {
+		return 0, false
+	}
+	delay := value.Sub(now)
+	if delay < 0 {
+		delay = 0
+	}
+	return delay, true
 }
